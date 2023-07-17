@@ -44,6 +44,8 @@ struct S {
     T();
     fun U() { }
   }
+  T i32
+  T i32
 }
 
 a + 3

@@ -39,6 +39,5 @@ int main(int argc, char **argv) {
   fmt::print("{}\n\n", ast.to_string());
   
   cinnabar::TypeResolver resolver(ast);
-  cinnabar::TAST Tast = resolver.resolve();
-  fmt::print("{}\n\n", Tast.to_string());
+  resolver.resolve();
 }

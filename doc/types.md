@@ -26,3 +26,15 @@ fun foo(i i32, j f32) // definition
 foo(i as i32, j as f32) // call
 foo(i: i32, j: f32)     // call
 ```
+
+In parser and AST:
+
+```Cinnabar
+struct HashMap[Key, Value] { }
+let m = HashMap[i32, bool]
+```
+
+Base type is named `HashMap`, gets an entry in the type table.
+Parameterized `m` is `HashMap[i32, bool]`, also gets an entry in the type table.
+Use canonical name `HashMap[i32, bool]` for lookup, mangled name `HashMap_i32_bool_ABC`
+for backend?

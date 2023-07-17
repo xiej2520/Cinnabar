@@ -11,25 +11,91 @@ Parser::Parser(std::string source) : lexer(std::move(source)) {
   tokens = lexer.get_tokens();
 }
 
-void Parser::add_name(Token &name, size_t type, int index) {
+#define RESERVE(table, uninitval)                                              \
+  Namespace *current = namespaces.back();                                      \
+  if (current->names.contains(name.str)) {                                     \
+    throw error_at(                                                            \
+        name, fmt::format("Redefinition of previous name \'{}\'.", name.str)); \
+  }                                                                            \
+  current->names.insert(name.str);                                             \
+  current->table[name.str] = uninitval
+
+#define LINK(table, decl)                                                      \
+  Namespace *current = namespaces.back();                                      \
+  if (!current->names.contains(name.str)) {                                    \
+    throw error_at(name, fmt::format("Internal parse error, aborting..."));    \
+    abort();                                                                   \
+  }                                                                            \
+  current->table[name.str] = decl;
+
+TypeId Parser::reserve_new_type(Token &name) {
   Namespace *current = namespaces.back();
   if (current->names.contains(name.str)) {
-    throw error_at(name, fmt::format("Redefinition of previous name \'{}\'.", name.str));
+    throw error_at(
+        name, fmt::format("Redefinition of previous name \'{}\'.", name.str));
   }
-  current->names[name.str] = {type, index};
+  int type_id = types.size();
+  types.push_back(
+      {static_cast<StructDecl *>(nullptr), static_cast<int>(type_id)});
+  current->names.insert(name.str);
+  current->type_decls[name.str] = type_id;
+  return type_id;
 }
 
-template <class... Ts> struct overload : Ts... { using Ts::operator()...; };
-template <class... Ts> overload(Ts...) -> overload<Ts...>; // helloooo clang???
-void Parser::add_name(Declaration &declaration, int index) {
-  return std::visit(overload{
-    [&](EnumDecl &decl) { return add_name(decl.name, variant_index<DeclVariant, EnumDecl>(), index); },
-    [&](FunDecl &decl) { return add_name(decl.name, variant_index<DeclVariant, FunDecl>(), index); },
-    [&](StructDecl &decl) { return add_name(decl.name, variant_index<DeclVariant, StructDecl>(), index); },
-    [&](VarDecl &decl) { return add_name(decl.name, variant_index<DeclVariant, VarDecl>(), index); },
-  }, declaration.decl);
+void Parser::link_type(Token &name, TypeDeclPtr type_decl_ptr) {
+  Namespace *current = namespaces.back();
+  if (!current->names.contains(name.str)) {
+    throw error_at(name, fmt::format("Internal parse error, aborting..."));
+    abort();
+  }
+  types[current->type_decls[name.str]].type_decl_ptr = type_decl_ptr;
 }
 
+void Parser::reserve_fun(Token &name) {
+  RESERVE(fun_decls, static_cast<FunDecl *>(nullptr));
+}
+
+void Parser::link_fun(Token &name, FunDecl *fun_decl) {
+  LINK(fun_decls, fun_decl)
+}
+void Parser::reserve_var(Token &name) {
+  RESERVE(var_decls, static_cast<VarDecl *>(nullptr));
+}
+
+void Parser::link_var(Token &name, VarDecl *var_decl) {
+  LINK(var_decls, var_decl)
+}
+
+#undef RESERVE
+#undef LINK
+
+void Parser::add_type(Token &name, TypeId id) {
+  Namespace *current = namespaces.back();
+  if (current->names.contains(name.str)) {
+    throw error_at(
+        name, fmt::format("Redefinition of previous name \'{}\'.", name.str));
+  }
+  current->names.insert(name.str);
+  current->type_decls[name.str] = id;
+}
+void Parser::add_fun(Token &name, FunDecl *fun_decl) {
+  Namespace *current = namespaces.back();
+  if (current->names.contains(name.str)) {
+    throw error_at(
+        name, fmt::format("Redefinition of previous name \'{}\'.", name.str));
+  }
+  current->names.insert(name.str);
+  current->fun_decls[name.str] = fun_decl;
+}
+void Parser::add_var(Token &name, VarDecl *var_decl) {
+  Namespace *current = namespaces.back();
+  if (current->names.contains(name.str)) {
+    throw error_at(
+        name, fmt::format("Redefinition of previous name \'{}\'.", name.str));
+  }
+  current->names.insert(name.str);
+  current->var_decls[name.str] = var_decl;
+}
 
 bool Parser::is_at_end() { return cur_token().lexeme == Lexeme::END_OF_FILE; }
 
@@ -64,8 +130,9 @@ Token Parser::expect(Lexeme l, std::string_view message) {
 }
 
 bool Parser::check(Lexeme l) {
-  if (is_at_end())
+  if (is_at_end()) {
     return false;
+  }
   return cur_token().lexeme == l;
 }
 
@@ -118,12 +185,20 @@ void Parser::synchronize() {
   }
 }
 
-TypeName Parser::type_name() {
-  return TypeName(expect(IDENTIFIER, "Expected type name.").str);
+GenType Parser::type_name() {
+  Token name = expect(IDENTIFIER, "Expected type name.");
+  std::vector<GenType> params;
+  if (match(LEFT_BRACKET)) {
+    do {
+      params.push_back(type_name());
+    } while (match(COMMA));
+    expect(RIGHT_BRACKET, "Expect ']' after type arguments.");
+  }
+  return GenType{std::string(name.str), params};
 }
 
-std::pair<Token, TypeName> Parser::ident_type() {
-  std::pair<Token, TypeName> res;
+std::pair<Token, GenType> Parser::ident_type() {
+  std::pair<Token, GenType> res;
   res.first = expect(IDENTIFIER, "Expected identifier.");
   res.second = type_name();
   return res;
@@ -150,115 +225,144 @@ Stmt Parser::toplevel_declaration() {
   return Stmt{std::monostate{}};
 }
 
-StructDecl Parser::struct_declaration() {
+std::unique_ptr<StructDecl> Parser::struct_declaration() {
   Token name = expect(IDENTIFIER, "Expected struct name.");
   expect(LEFT_BRACE, "Expect '{' before struct body.");
 
-  std::vector<std::pair<Token, TypeName>> fields;
-  std::vector<FunDecl> methods;
+  std::vector<std::pair<Token, GenType>> fields;
+  std::vector<std::unique_ptr<FunDecl>> methods;
   Namespace namesp;
   namespaces.push_back(&namesp);
-  add_name(name, variant_index<DeclVariant, StructDecl>(), -1);
+  TypeId id = reserve_new_type(name);
+
+  std::unordered_set<std::string_view> field_names;
   try {
     while (!check(RIGHT_BRACE) && !is_at_end()) {
       if (match(FUN)) {
         methods.emplace_back(function_declaration());
-        add_name(methods.back().name, variant_index<DeclVariant, FunDecl>(), methods.size() - 1);
+        add_fun(methods.back()->name, methods.back().get());
       } else if (match(SEMICOLON)) {
         // skip
       } else {
-        fields.emplace_back(ident_type());
-        add_name(fields.back().first, variant_index<DeclVariant, VarDecl>(), fields.size() - 1);
+        auto field_decl = ident_type();
+        if (field_names.contains(field_decl.first.str)) {
+          throw error_at(field_decl.first, "Redefinition of field name");
+        }
+        field_names.insert(field_decl.first.str);
+        fields.emplace_back(field_decl);
       }
     }
-  }
-  catch (ParseError &err) {
+  } catch (ParseError &err) {
     namespaces.pop_back();
     throw err;
   }
 
+  auto res =
+      std::make_unique<StructDecl>(name, fields, std::move(methods), namesp);
+  link_type(name, res.get());
+
   namespaces.pop_back();
+  add_type(name, id);
+
   expect(RIGHT_BRACE, "Expect '}' after struct body");
-  return StructDecl{name, fields, std::move(methods), namesp};
+  return res;
 }
 
-EnumDecl Parser::enum_declaration() {
+std::unique_ptr<EnumDecl> Parser::enum_declaration() {
   Token name = expect(IDENTIFIER, "Expected enum name.");
   expect(LEFT_BRACE, "Expect '{' before enum body.");
 
-  std::vector<std::pair<Token, TypeName>> variants;
-  std::vector<FunDecl> methods;
+  std::vector<std::pair<Token, GenType>> variants;
+  std::vector<std::unique_ptr<FunDecl>> methods;
   Namespace namesp;
   namespaces.push_back(&namesp);
-  add_name(name, variant_index<DeclVariant, EnumDecl>(), -1);
+  TypeId id = reserve_new_type(name);
+
+  std::unordered_set<std::string_view> variant_names;
   try {
     while (!check(RIGHT_BRACE) && !is_at_end()) {
       if (match(FUN)) {
         methods.emplace_back(function_declaration());
-        add_name(methods.back().name, variant_index<DeclVariant, FunDecl>(), methods.size() - 1);
+        add_fun(methods.back()->name, methods.back().get());
       } else if (match(SEMICOLON)) {
         // continue
       } else {
-        std::pair<Token, TypeName> res;
-        res.first = expect(IDENTIFIER, "Expected identifier.");
-        res.second = check(SEMICOLON) ? (advance(), TypeName{"()"}) : type_name();
-        variants.emplace_back(res);
-        add_name(variants.back().first, variant_index<DeclVariant, VarDecl>(), variants.size() - 1);
+        auto variant_decl = ident_type();
+        if (variant_names.contains(variant_decl.first.str)) {
+          throw error_at(variant_decl.first, "Redefinition of variant name");
+        }
+        variant_names.insert(variant_decl.first.str);
+        variants.emplace_back(variant_decl);
       }
     }
-  }
-  catch (ParseError &err) {
+  } catch (ParseError &err) {
     namespaces.pop_back();
     throw err;
   }
 
+  auto res =
+      std::make_unique<EnumDecl>(name, variants, std::move(methods), namesp);
+  link_type(name, res.get());
+
   namespaces.pop_back();
+  add_type(name, id);
+
   expect(RIGHT_BRACE, "Expect '}' after enum body.");
-  return EnumDecl(name, variants, std::move(methods), namesp);
+  return res;
 }
 
-FunDecl Parser::function_declaration() {
+std::unique_ptr<FunDecl> Parser::function_declaration() {
   Token name = expect(IDENTIFIER, "Expected function name.");
   expect(LEFT_PAREN, "Expect '(' after function name.");
-  
+
   Namespace namesp;
   namespaces.push_back(&namesp);
   // function can refer to itself in body
-  add_name(name, variant_index<DeclVariant, FunDecl>(), -1);
-  std::vector<std::pair<Token, TypeName>> parameters;
-  Block body({}, namesp);
+  reserve_fun(name);
+
+  std::vector<std::unique_ptr<VarDecl>> parameters;
+  std::unique_ptr<Block> body(nullptr);
   try {
     if (!check(RIGHT_PAREN)) {
       do {
-        parameters.push_back(ident_type());
-        add_name(parameters.back().first, variant_index<DeclVariant, VarDecl>(), parameters.size() - 1);
+        parameters.push_back(variable_declaration());
+        if (!parameters.back()->type_specifier.has_value()) {
+          throw error_at(
+              parameters.back()->name, "Function parameter must be typed.");
+        }
+        if (!parameters.back()->initializer.is<std::monostate>()) {
+          throw error_at(parameters.back()->name,
+              "Function parameter cannot (currently) have initializer.");
+        }
       } while (match(COMMA));
     }
     expect(RIGHT_PAREN, "Expect ')' after parameters.");
     expect(LEFT_BRACE, "Expect '{' before function body.");
     body = block(namesp);
-  }
-  catch (ParseError &err) {
+  } catch (ParseError &err) {
     namespaces.pop_back();
     throw err;
   }
   namespaces.pop_back();
   // check for return type
-  return FunDecl(name, parameters, std::move(body));
+  return std::make_unique<FunDecl>(
+      name, std::move(parameters), std::move(body));
 }
 
-VarDecl Parser::variable_declaration() {
+std::unique_ptr<VarDecl> Parser::variable_declaration() {
   Token name = expect(IDENTIFIER, "Expected identifier.");
-  std::optional<TypeName> type;
-  std::unique_ptr<Expr> initializer = nullptr;
+  std::optional<GenType> type;
+  Expr initializer = ExprVariant{std::monostate{}};
   if (!check(EQUAL)) {
     type = type_name();
   }
   if (match(EQUAL)) {
-    initializer = std::make_unique<Expr>(expression_bp(0));
+    initializer = Expr{expression_bp(0)};
   }
   expect(SEMICOLON, "Expect ';' (EOL) after variable declaration.");
-  return VarDecl(name, type, std::move(initializer));
+  auto res = std::make_unique<VarDecl>(name, type, std::move(initializer));
+  add_var(name, res.get());
+  return res;
 }
 
 Stmt Parser::statement() {
@@ -273,10 +377,8 @@ Stmt Parser::statement() {
       return Stmt{Declaration{variable_declaration()}};
     } else if (match(SEMICOLON)) {
       return Stmt{std::monostate{}};
-    }
-    else if (match(FOR)) {
-    }
-    else {
+    } else if (match(FOR)) {
+    } else {
       return expression_statement();
     }
   } catch (ParseError &err) {
@@ -285,7 +387,7 @@ Stmt Parser::statement() {
   return Stmt{std::monostate{}};
 }
 
-Block Parser::block() {
+std::unique_ptr<Block> Parser::block() {
   std::vector<Stmt> res;
   Namespace namesp;
   namespaces.push_back(&namesp);
@@ -295,32 +397,25 @@ Block Parser::block() {
       if (!stmt.is<std::monostate>()) {
         res.emplace_back(std::move(stmt));
       }
-      if (stmt.is<Declaration>()) {
-        add_name(stmt.as<Declaration>(), res.size()-1);
-      }
     }
     expect(RIGHT_BRACE, "Expected '}' after block.");
-  }
-  catch (ParseError &err) {
+  } catch (ParseError &err) {
     namespaces.pop_back();
   }
   namespaces.pop_back();
-  return Block{std::move(res), namesp};
+  return std::make_unique<Block>(std::move(res), namesp);
 }
 
-Block Parser::block(Namespace &namesp) {
+std::unique_ptr<Block> Parser::block(Namespace &namesp) {
   std::vector<Stmt> res;
   while (!check(RIGHT_BRACE) && !is_at_end()) {
     Stmt stmt = statement();
     if (!stmt.is<std::monostate>()) {
       res.emplace_back(std::move(stmt));
     }
-    if (stmt.is<Declaration>()) {
-      add_name(stmt.as<Declaration>(), res.size() - 1);
-    }
   }
   expect(RIGHT_BRACE, "Expected '}' after block.");
-  return Block{std::move(res), namesp};
+  return std::make_unique<Block>(std::move(res), namesp);
 }
 
 Stmt Parser::expression_statement() {
@@ -340,14 +435,14 @@ Stmt Parser::expression_statement() {
       throw error_prev("How did this happen?");
     }
     Expr rhs = expression_bp(0);
-    return Stmt{Assign{op, std::make_unique<Expr>(std::move(expr)),
-                       std::make_unique<Expr>(std::move(rhs))}};
+    return Stmt{std::make_unique<Assign>(
+        op, Expr{std::move(expr)}, Expr{std::move(rhs)})};
   }
   default:
     break;
   }
   expect(SEMICOLON, "Expect ';' (EOL) after expression.");
-  return Stmt{Expression{std::move(expr)}};
+  return Stmt{std::make_unique<Expression>(std::move(expr))};
 }
 
 // parses expression above minimum binding power argument
@@ -357,43 +452,42 @@ Expr Parser::expression_bp(int min_bp) {
   std::optional<Expr> lhs = std::nullopt;
   // parse LHS of expression
   if (prefix_binding_power(token.lexeme) != -1) {
-    lhs = Expr{Unary{to_unaryop(token.lexeme),
-                     std::make_unique<Expr>(
-                         expression_bp(prefix_binding_power(token.lexeme)))}};
+    lhs = Expr{std::make_unique<Unary>(to_unaryop(token.lexeme),
+        Expr(expression_bp(prefix_binding_power(token.lexeme))))};
   }
   switch (token.lexeme) {
-  // clang-format off
-    case TRUE: lhs = Expr{Literal{true}}; break;
-    case FALSE: lhs = Expr{Literal{false}}; break;
-    case INTEGER: lhs = Expr{Literal{std::stoi(std::string(token.str))}}; break;
-    case DECIMAL: lhs = Expr{Literal{std::stod(std::string(token.str))}}; break;
-    case STRING: lhs = Expr{Literal{std::string{token.str}}}; break;
-    case CHARACTER: lhs = Expr{Literal{token.str[1]}}; break; // fix later
-    case IDENTIFIER: lhs = Expr{Variable{token}}; break;
+    // clang-format off
+    case TRUE: lhs = Expr{std::make_unique<Literal>(true)}; break;
+    case FALSE: lhs = Expr{std::make_unique<Literal>(false)}; break;
+    case INTEGER: lhs = Expr{std::make_unique<Literal>(std::stoi(std::string(token.str)))}; break;
+    case DECIMAL: lhs = Expr{std::make_unique<Literal>(std::stod(std::string(token.str)))}; break;
+    case STRING: lhs = Expr{std::make_unique<Literal>(std::string{token.str})}; break;
+    case CHARACTER: lhs = Expr{std::make_unique<Literal>(token.str[1])}; break; // fix later
+    case IDENTIFIER: lhs = Expr{std::make_unique<Variable>(token)}; break;
     case IF: {
-      std::vector<If::Branch> branches;
+      std::vector<std::unique_ptr<If::Branch>> branches;
       Expr condition = expression_bp(0);
       expect(LEFT_BRACE, "Expected '{' after 'if'.");
-      Block b = block();
-      branches.emplace_back(If::Branch(std::make_unique<Expr>(std::move(condition)), std::move(b)));
+      branches.emplace_back(std::make_unique<If::Branch>(Expr(std::move(condition)), block()));
+
       while (match(ELSE)) {
         if (match(IF)) {
-          branches.emplace_back(If::Branch(std::make_unique<Expr>(expression_bp(0)), block()));
+          branches.emplace_back(std::make_unique<If::Branch>(Expr(expression_bp(0)), block()));
         }
         else {
           expect(LEFT_BRACE, "Expected '{' after 'else'.");
-          branches.emplace_back(If::Branch(std::make_unique<Expr>(Literal{true}), block()));
+          branches.emplace_back(std::make_unique<If::Branch>(Expr(std::unique_ptr<Literal>(nullptr)), block()));
           break;
         }
       }
-      lhs = Expr{If{std::move(branches)}};
+      lhs = Expr{std::make_unique<If>(std::move(branches))};
       break;
     }
     case ELSE: {
       throw error_prev("Unexpected 'else' with no preceding 'if'.");
     }
     case LEFT_BRACE: {
-      lhs = Expr{Block{block()}};
+      lhs = Expr{block()};
       break;
     }
     default: throw error_prev(fmt::format("Unexpected token in expression: {}.", to_string(token.lexeme)));
@@ -412,15 +506,15 @@ Expr Parser::expression_bp(int min_bp) {
       case LEFT_PAREN: {
         advance();
         std::vector<Expr> args = argument_list();
-        lhs = Expr{FunCall{std::make_unique<Expr>(std::move(lhs.value())),
-                           std::move(args)}};
+        lhs = Expr{std::make_unique<FunCall>(
+            Expr{std::move(lhs.value())}, std::move(args))};
         break;
       }
       case DOT: {
         advance();
         Token ident = expect(IDENTIFIER, "Expected identifier after '.'.");
         lhs =
-            Expr{DotRef{std::make_unique<Expr>(std::move(lhs.value())), ident}};
+            Expr{std::make_unique<DotRef>(Expr{std::move(lhs.value())}, ident)};
         break;
       }
       default:
@@ -440,8 +534,8 @@ Expr Parser::expression_bp(int min_bp) {
       // left-associativity
       auto rhs = expression_bp(min_bp + 1);
       // if assign was an Expr, would do switch here
-      lhs = Expr{Binary{op, std::make_unique<Expr>(std::move(lhs.value())),
-                        std::make_unique<Expr>(std::move(rhs))}};
+      lhs = Expr{std::make_unique<Binary>(
+          op, Expr{std::move(lhs.value())}, Expr{std::move(rhs)})};
       continue;
     }
     // not postfix or infix, end
@@ -546,7 +640,6 @@ AST Parser::parse() {
     Stmt decl = toplevel_declaration();
     if (!decl.is<std::monostate>()) {
       decls.emplace_back(std::move(decl.as<Declaration>()));
-      add_name(decl.as<Declaration>(), decls.size() - 1);
     }
   }
   return AST(std::move(decls), globals);
