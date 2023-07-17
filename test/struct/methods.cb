@@ -1,0 +1,8 @@
+
+struct Dog {
+  sound String = "Woof"
+  fun bark() {
+    print(sound)
+  }
+  
+}

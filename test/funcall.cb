@@ -1,0 +1,17 @@
+fun f() {}
+fun g(a i32, b i32) {
+  g(4, 5)
+}
+fun main(a i32, b i64, c f64) {
+  g(0, 1)
+  let e1 E = x
+  let e2 = E.n(4)
+}
+
+enum E {
+  x
+  y
+  z
+  n i32
+  m f64
+}

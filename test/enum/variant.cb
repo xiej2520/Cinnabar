@@ -1,0 +1,9 @@
+
+enum Colors {
+  Red
+  Green
+  Blue
+  RedLevel i32 = 5
+  GreenLevel f32 = 3.9
+  Custom String
+}

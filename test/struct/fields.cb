@@ -1,0 +1,6 @@
+
+struct Dog {
+  height i32
+  weight f64
+  name String
+}

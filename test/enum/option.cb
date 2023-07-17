@@ -1,0 +1,11 @@
+
+enum Option {
+  None
+  Some i32
+}
+
+enum Option[T] {
+  None
+  Some T
+}
+

@@ -1,0 +1,37 @@
+
+/*
+  hi
+  /* this is a nested comment //
+  // this counts */
+*/
+
+struct Point {
+  x i32
+  y i32
+}
+
+struct Rect {
+  p1 Point
+  p2 Point
+  p3 Point
+  p4 Point
+}
+
+fun main() {
+  let p1 = Point(1, 2)
+  let p2 = Point(1, 3)
+  let p3 = Point(2, 2)
+  let p4 = Point(2, 3)
+  let r1 = Rect(p1, p2, p3, p4)
+  
+  let v1 Vec[i32] = Vec(4, 1)
+  let v2 ^Vec = v1(0)^
+  
+  // explicit copy
+  let r2 = r1.clone()
+  // destructive move
+  let p5 = r1.top_left // destroys r1
+  let p6 = Point(4, 5)
+  let p7 = rotate(p6); // move into function
+}
+

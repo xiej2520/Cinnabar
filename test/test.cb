@@ -1,0 +1,54 @@
+fun main() {
+  let str = "abcdefg\"01234";
+  let c1 = '.'
+  let c2 = ';'
+  let c3 = '\'';
+  
+  var a = 1.234
+  let b = 1100
+  let c = a - b
+  a + b
+  a += b
+  a - b
+  a -= b
+  a * b
+  a *= b
+  a / b
+  a /= b
+  a % b
+  a %= b
+  a & b
+  a &= b
+  a | b
+  a |= b
+  a ^ b
+  a ^= b
+  if true {
+    a = 5.4
+  }
+  else {
+    a = 4.5
+  }
+  b = if true { 2 } else { 1 }
+  let d = { 2 } + 4
+  {
+    let d = 3;
+  }
+  {
+    let e = 4;
+  }
+}
+
+struct S {
+  fun T() {
+    T();
+    fun U() { }
+  }
+}
+
+a + 3
+
+b = 4
+a += b
+
+; ;

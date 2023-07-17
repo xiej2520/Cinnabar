@@ -1,0 +1,10 @@
+f (i int) string { }
+
+f is (int): string
+
+g (i int) ^(int) string
+
+g is (int): ^(int): string
+g(42) is ^(int): string
+g(42)@ is (int): string
+g(42)@(3) is string

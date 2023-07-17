@@ -1,0 +1,35 @@
+fun fib(n int) int {
+  if n <= 1: return n
+  let a = fib(n - 1)
+  var b = fib(n-2)
+  return a + b
+}
+
+fun main() {
+  let str = "abcdefg\"01234";
+  let c1 = '.'
+  let c2 = ';'
+  let c3 = '\'';
+  
+  var a = 1.234
+  let b = 1100
+  let c = a - b
+  a + b
+  a += b
+  a - b
+  a -= b
+  a * b
+  a *= b
+  a / b
+  a /= b
+  a % b
+  a %= b
+  a & b
+  a &= b
+  a | b
+  a |= b
+  a ~ b
+  a ~= b
+  a ^ b
+  a ^= b
+}
