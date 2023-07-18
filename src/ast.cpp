@@ -23,6 +23,31 @@ std::string GenType::to_string() {
   return res;
 }
 
+std::string Namespace::to_string(int cur) {
+  auto res = fmt::format("{:{}}Namespace: ", "", cur);
+  if (!type_decls.empty()) {
+    res.append("Types: ");
+    for (auto &p : type_decls) {
+      res.append(fmt::format("{}[{}], ", p.first, p.second));
+    }
+  }
+  if (!fun_decls.empty()) {
+    res.append("Functions: ");
+    for (auto &p : fun_decls) {
+      res.append(fmt::format("{}, ", p.first));
+    }
+  }
+  if (!var_decls.empty()) {
+    res.append("Variables: ");
+    for (auto &p : var_decls) {
+      res.append(fmt::format("{}, ", p.first));
+    }
+  }
+  res.pop_back();
+  res.back() = '\n';
+  return res;
+}
+
 // statements
 Assign::Assign(AssignOp op, Expr lhs, Expr rhs)
     : op(op), lhs(std::move(lhs)), rhs(std::move(rhs)) {}
@@ -79,12 +104,7 @@ Expr::Expr(ExprVariant node) : node(std::move(node)) {}
 std::string FunDecl::s_expr(int cur, int ind) {
   std::string res = fmt::format("{:{}}(Fun[{}]\n", "", cur, name.str);
   if (!body->namesp.names.empty()) {
-    res += fmt::format("{:{}}Names: ", "", cur + ind);
-    for (auto &name : body->namesp.names) {
-      res += fmt::format("{}, ", name);
-    }
-    res.pop_back();
-    res.back() = '\n';
+    res += body->namesp.to_string(cur + ind);
   }
   for (auto &var : params) {
     res += fmt::format(
@@ -94,6 +114,15 @@ std::string FunDecl::s_expr(int cur, int ind) {
     res += stmt.s_expr(cur + ind, ind);
   }
   return res + fmt::format("{:{}})\n", "", cur);
+}
+
+std::string Block::to_string(int cur, int ind) {
+  std::string res = fmt::format("{:{}}(Block\n", "", cur);
+  res += namesp.to_string(cur + ind);
+  for (Stmt &stmt : stmts) {
+    res += stmt.s_expr(cur + ind, ind);
+  }
+  return res += fmt::format("{:{}})\n", "", cur);
 }
 
 // clang-format off
@@ -125,14 +154,7 @@ std::string Declaration::s_expr(int cur, int ind) {
       std::string res = fmt::format("{:{}}(Struct "
                                     "{}\n",
           "", cur, decl->name.str);
-      if (!decl->namesp.names.empty()) {
-        res += fmt::format("{:{}}", "", cur + ind);
-        for (auto &name : decl->namesp.names) {
-          res += fmt::format("({}), ", name);
-        }
-        res.pop_back();
-        res.back() = '\n';
-      }
+      res += decl->namesp.to_string(cur + ind);
       for (auto &p : decl->fields) {
         res += fmt::format(
             "{:{}}{} {}\n", "", cur + ind, p.first.str, p.second.name);
@@ -188,7 +210,7 @@ std::string to_string(LiteralVariant v) {
 std::string Expr::s_expr(int cur, int ind) {
   return std::visit(overload{
     [&](std::monostate) {
-      return fmt::format("{:{}}[monostate]", "", cur);
+      return fmt::format("{:{}}[monostate]\n", "", cur);
     },
     [&](unique_ptr<Binary> &expr) {
       return fmt::format("{:{}}(Binary[{}]\n{}{}{:{}})\n", "", cur,
@@ -196,19 +218,7 @@ std::string Expr::s_expr(int cur, int ind) {
           expr->right.s_expr(cur + ind, ind), "", cur);
     },
     [&](unique_ptr<Block> &expr) {
-      std::string res = fmt::format("{:{}}(Block\n", "", cur);
-      if (!expr->namesp.names.empty()) {
-        res += fmt::format("{:{}}Names: ", "", cur + ind);
-        for (auto &name : expr->namesp.names) {
-          res += fmt::format("{}, ", name);
-        }
-        res.pop_back();
-        res.back() = '\n';
-      }
-      for (Stmt &stmt : expr->stmts) {
-        res += stmt.s_expr(cur + ind, ind);
-      }
-      return res += fmt::format("{:{}})\n", "", cur);
+      return expr->to_string(cur, ind);
     },
     [&](unique_ptr<DotRef> &expr) {
       return fmt::format("{:{}}(DotRef\n{}{:{}}({})\n{:{}})\n", "", cur,
@@ -223,7 +233,15 @@ std::string Expr::s_expr(int cur, int ind) {
       }
       return res + fmt::format("{:{}})\n", "", cur);
     },
-    [&](unique_ptr<If> &) { return fmt::format("{:{}}(If)", "", cur); },
+    [&](unique_ptr<If> &expr) {
+      auto res = fmt::format("{:{}}(If\n", "", cur);
+      for (auto &branch : expr->branches) {
+        res += fmt::format("{:{}}(Branch\n", "", cur);
+        res += branch->condition.s_expr(cur+ind, ind);
+        res += branch->block->to_string(cur+ind, ind);
+      }
+      return res + fmt::format("{:{}})\n", "", cur);
+    },
     [&](unique_ptr<Literal> &expr) {
       return fmt::format(
           "{:{}}(Literal[{}])\n", "", cur, to_string(expr->val));
@@ -245,10 +263,7 @@ AST::AST(std::vector<Declaration> decls, Namespace globals)
 
 std::string AST::to_string() {
   std::string res = "AST\n";
-  for (auto &name : globals.names) {
-    res += fmt::format("({}), ", name);
-  }
-  res += "\n";
+  res += globals.to_string(0);
   for (Declaration &decl : decls) {
     res += decl.s_expr(0, 2) + "\n";
   }

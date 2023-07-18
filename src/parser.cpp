@@ -476,7 +476,7 @@ Expr Parser::expression_bp(int min_bp) {
         }
         else {
           expect(LEFT_BRACE, "Expected '{' after 'else'.");
-          branches.emplace_back(std::make_unique<If::Branch>(Expr(std::unique_ptr<Literal>(nullptr)), block()));
+          branches.emplace_back(std::make_unique<If::Branch>(Expr(std::monostate{}), block()));
           break;
         }
       }

@@ -157,6 +157,7 @@ struct Namespace {
   std::unordered_map<std::string_view, FunDecl *> fun_decls;
   std::unordered_map<std::string_view, VarDecl *> var_decls;
   Namespace() = default;
+  std::string to_string(int cur);
 };
 
 /*
@@ -207,6 +208,7 @@ struct Block {
   std::vector<Stmt> stmts;
   Namespace namesp;
   Block(std::vector<Stmt> stmts, Namespace namesp);
+  std::string to_string(int cur, int ind);
 };
 
 struct DotRef {
