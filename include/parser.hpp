@@ -8,7 +8,6 @@
 
 namespace cinnabar {
 
-
 class Parser {
   struct ParseError { };
 
@@ -20,16 +19,20 @@ class Parser {
   std::vector<Namespace *> namespaces;
   std::vector<Type> types;
 
-  TypeId reserve_new_type(Token &name);
-  void link_type(Token &name, TypeDeclPtr type_decl_ptr);
-  void reserve_fun(Token &name);
-  void link_fun(Token &name, FunDecl *fun_decl);
-  void reserve_var(Token &name);
-  void link_var(Token &name, VarDecl *var_decl);
+  // adds a type to the type table and adds an entry to the local namespace
+  TypeId reserve_new_type(const Token &name);
+  // links the type in the type table to a decl ptr
+  void link_type(TypeId id, TypeDeclPtr type_decl_ptr);
 
-  void add_type(Token &name, TypeId id);
-  void add_fun(Token &name, FunDecl *fun_decl);
-  void add_var(Token &name, VarDecl *var_decl);
+  void reserve_fun(const Token &name);
+  void link_fun(const Token &name, FunDecl *fun_decl);
+  void reserve_var(const Token &name);
+  void link_var(const Token &name, VarDecl *var_decl);
+
+  // adds the type to the local namespace
+  void add_type(const Token &name, TypeId id);
+  void add_fun(const Token &name, FunDecl *fun_decl);
+  void add_var(const Token &name, VarDecl *var_decl);
 
   bool is_at_end();
   Token cur_token();
@@ -42,7 +45,7 @@ class Parser {
   Token expect(Lexeme l, std::string_view message);
   Token advance();
 
-  ParseError error_at(Token &t, std::string_view message);
+  ParseError error_at(const Token &t, std::string_view message);
   ParseError error_prev(std::string_view message);
   ParseError error_cur(std::string_view message);
   void synchronize();
@@ -61,7 +64,7 @@ class Parser {
   std::unique_ptr<Block> block();
   // block with existing namespace (for functions)
   // namespace numbering will clash, handle this elsewhere...
-  std::unique_ptr<Block> block(Namespace &namesp);
+  std::unique_ptr<Block> block(std::unique_ptr<Namespace> namesp);
   
   Stmt expression_statement();
   // expression with min binding power

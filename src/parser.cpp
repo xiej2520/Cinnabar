@@ -15,7 +15,8 @@ Parser::Parser(std::string source) : lexer(std::move(source)) {
   Namespace *current = namespaces.back();                                      \
   if (current->names.contains(name.str)) {                                     \
     throw error_at(                                                            \
-        name, fmt::format("Redefinition of previous name \'{}\'.", name.str)); \
+        name, fmt::format("Redefinition of previous name \'{}\'.", name.str)   \
+    );                                                                         \
   }                                                                            \
   current->names.insert(name.str);                                             \
   current->table[name.str] = uninitval
@@ -28,70 +29,70 @@ Parser::Parser(std::string source) : lexer(std::move(source)) {
   }                                                                            \
   current->table[name.str] = decl;
 
-TypeId Parser::reserve_new_type(Token &name) {
+TypeId Parser::reserve_new_type(const Token &name) {
   Namespace *current = namespaces.back();
   if (current->names.contains(name.str)) {
     throw error_at(
-        name, fmt::format("Redefinition of previous name \'{}\'.", name.str));
+        name, fmt::format("Redefinition of previous name \'{}\'.", name.str)
+    );
   }
   int type_id = types.size();
   types.push_back(
-      {static_cast<StructDecl *>(nullptr), static_cast<int>(type_id)});
+      {static_cast<StructDecl *>(nullptr), static_cast<int>(type_id)}
+  );
   current->names.insert(name.str);
   current->type_decls[name.str] = type_id;
   return type_id;
 }
 
-void Parser::link_type(Token &name, TypeDeclPtr type_decl_ptr) {
-  Namespace *current = namespaces.back();
-  if (!current->names.contains(name.str)) {
-    throw error_at(name, fmt::format("Internal parse error, aborting..."));
-    abort();
-  }
-  types[current->type_decls[name.str]].type_decl_ptr = type_decl_ptr;
+void Parser::link_type(TypeId id, TypeDeclPtr type_decl_ptr) {
+  types[id].type_decl_ptr = type_decl_ptr;
 }
 
-void Parser::reserve_fun(Token &name) {
+void Parser::reserve_fun(const Token &name) {
   RESERVE(fun_decls, static_cast<FunDecl *>(nullptr));
 }
 
-void Parser::link_fun(Token &name, FunDecl *fun_decl) {
+void Parser::link_fun(const Token &name, FunDecl *fun_decl) {
   LINK(fun_decls, fun_decl)
 }
-void Parser::reserve_var(Token &name) {
+void Parser::reserve_var(const Token &name) {
   RESERVE(var_decls, static_cast<VarDecl *>(nullptr));
 }
 
-void Parser::link_var(Token &name, VarDecl *var_decl) {
+void Parser::link_var(const Token &name, VarDecl *var_decl) {
   LINK(var_decls, var_decl)
 }
 
 #undef RESERVE
 #undef LINK
 
-void Parser::add_type(Token &name, TypeId id) {
+void Parser::add_type(const Token &name, TypeId id) {
   Namespace *current = namespaces.back();
   if (current->names.contains(name.str)) {
     throw error_at(
-        name, fmt::format("Redefinition of previous name \'{}\'.", name.str));
+        name, fmt::format("Redefinition of previous name \'{}\'.", name.str)
+    );
   }
   current->names.insert(name.str);
   current->type_decls[name.str] = id;
 }
-void Parser::add_fun(Token &name, FunDecl *fun_decl) {
+void Parser::add_fun(const Token &name, FunDecl *fun_decl) {
   Namespace *current = namespaces.back();
   if (current->names.contains(name.str)) {
     throw error_at(
-        name, fmt::format("Redefinition of previous name \'{}\'.", name.str));
+        name, fmt::format("Redefinition of previous name \'{}\'.", name.str)
+    );
   }
   current->names.insert(name.str);
   current->fun_decls[name.str] = fun_decl;
 }
-void Parser::add_var(Token &name, VarDecl *var_decl) {
+void Parser::add_var(const Token &name, VarDecl *var_decl) {
   Namespace *current = namespaces.back();
   if (current->names.contains(name.str)) {
     throw error_at(
-        name, fmt::format("Redefinition of previous name \'{}\'.", name.str));
+        name, fmt::format("Redefinition of previous name \'{}\'.", name.str)
+    );
   }
   current->names.insert(name.str);
   current->var_decls[name.str] = var_decl;
@@ -143,7 +144,7 @@ Token Parser::advance() {
   return peek(-1);
 }
 
-Parser::ParseError Parser::error_at(Token &t, std::string_view message) {
+Parser::ParseError Parser::error_at(const Token &t, std::string_view message) {
   fmt::print("Line {}, column {}, {}\n", t.line, t.col, message);
   has_error = true;
   return ParseError{};
@@ -198,7 +199,7 @@ GenType Parser::type_name() {
 }
 
 std::pair<Token, GenType> Parser::ident_type() {
-  std::pair<Token, GenType> res;
+  std::pair<Token, GenType> res(Token(), GenType(""));
   res.first = expect(IDENTIFIER, "Expected identifier.");
   res.second = type_name();
   return res;
@@ -231,8 +232,8 @@ std::unique_ptr<StructDecl> Parser::struct_declaration() {
 
   std::vector<std::pair<Token, GenType>> fields;
   std::vector<std::unique_ptr<FunDecl>> methods;
-  Namespace namesp;
-  namespaces.push_back(&namesp);
+  auto namesp = std::make_unique<Namespace>(namespaces.back());
+  namespaces.push_back(namesp.get());
   TypeId id = reserve_new_type(name);
 
   std::unordered_set<std::string_view> field_names;
@@ -258,8 +259,8 @@ std::unique_ptr<StructDecl> Parser::struct_declaration() {
   }
 
   auto res =
-      std::make_unique<StructDecl>(name, fields, std::move(methods), namesp);
-  link_type(name, res.get());
+      std::make_unique<StructDecl>(name, fields, std::move(methods), std::move(namesp));
+  link_type(id, res.get());
 
   namespaces.pop_back();
   add_type(name, id);
@@ -274,8 +275,8 @@ std::unique_ptr<EnumDecl> Parser::enum_declaration() {
 
   std::vector<std::pair<Token, GenType>> variants;
   std::vector<std::unique_ptr<FunDecl>> methods;
-  Namespace namesp;
-  namespaces.push_back(&namesp);
+  auto namesp = std::make_unique<Namespace>(namespaces.back());
+  namespaces.push_back(namesp.get());
   TypeId id = reserve_new_type(name);
 
   std::unordered_set<std::string_view> variant_names;
@@ -301,8 +302,8 @@ std::unique_ptr<EnumDecl> Parser::enum_declaration() {
   }
 
   auto res =
-      std::make_unique<EnumDecl>(name, variants, std::move(methods), namesp);
-  link_type(name, res.get());
+      std::make_unique<EnumDecl>(name, variants, std::move(methods), std::move(namesp));
+  link_type(id, res.get());
 
   namespaces.pop_back();
   add_type(name, id);
@@ -315,30 +316,39 @@ std::unique_ptr<FunDecl> Parser::function_declaration() {
   Token name = expect(IDENTIFIER, "Expected function name.");
   expect(LEFT_PAREN, "Expect '(' after function name.");
 
-  Namespace namesp;
-  namespaces.push_back(&namesp);
+  auto namesp = std::make_unique<Namespace>(namespaces.back());
+  namespaces.push_back(namesp.get());
   // function can refer to itself in body
   reserve_fun(name);
 
   std::vector<std::unique_ptr<VarDecl>> parameters;
+  GenType return_type("unit");
   std::unique_ptr<Block> body(nullptr);
+
   try {
     if (!check(RIGHT_PAREN)) {
       do {
         parameters.push_back(variable_declaration());
         if (!parameters.back()->type_specifier.has_value()) {
           throw error_at(
-              parameters.back()->name, "Function parameter must be typed.");
+              parameters.back()->name, "Function parameter must be typed."
+          );
         }
-        if (!parameters.back()->initializer.is<std::monostate>()) {
-          throw error_at(parameters.back()->name,
-              "Function parameter cannot (currently) have initializer.");
+        if (!parameters.back()->initializer.has_value()) {
+          throw error_at(
+              parameters.back()->name,
+              "Function parameter cannot (currently) have initializer."
+          );
         }
       } while (match(COMMA));
     }
     expect(RIGHT_PAREN, "Expect ')' after parameters.");
+
+    if (!check(LEFT_BRACE)) {
+      return_type = type_name();
+    }
     expect(LEFT_BRACE, "Expect '{' before function body.");
-    body = block(namesp);
+    body = block(std::move(namesp));
   } catch (ParseError &err) {
     namespaces.pop_back();
     throw err;
@@ -346,13 +356,14 @@ std::unique_ptr<FunDecl> Parser::function_declaration() {
   namespaces.pop_back();
   // check for return type
   return std::make_unique<FunDecl>(
-      name, std::move(parameters), std::move(body));
+      name, std::move(parameters), return_type, std::move(body)
+  );
 }
 
 std::unique_ptr<VarDecl> Parser::variable_declaration() {
   Token name = expect(IDENTIFIER, "Expected identifier.");
   std::optional<GenType> type;
-  Expr initializer = ExprVariant{std::monostate{}};
+  std::optional<Expr> initializer = std::nullopt;
   if (!check(EQUAL)) {
     type = type_name();
   }
@@ -389,8 +400,8 @@ Stmt Parser::statement() {
 
 std::unique_ptr<Block> Parser::block() {
   std::vector<Stmt> res;
-  Namespace namesp;
-  namespaces.push_back(&namesp);
+  auto namesp = std::make_unique<Namespace>(namespaces.back());
+  namespaces.push_back(namesp.get());
   try {
     while (!check(RIGHT_BRACE) && !is_at_end()) {
       Stmt stmt = statement();
@@ -403,10 +414,10 @@ std::unique_ptr<Block> Parser::block() {
     namespaces.pop_back();
   }
   namespaces.pop_back();
-  return std::make_unique<Block>(std::move(res), namesp);
+  return std::make_unique<Block>(std::move(res), std::move(namesp));
 }
 
-std::unique_ptr<Block> Parser::block(Namespace &namesp) {
+std::unique_ptr<Block> Parser::block(std::unique_ptr<Namespace> namesp) {
   std::vector<Stmt> res;
   while (!check(RIGHT_BRACE) && !is_at_end()) {
     Stmt stmt = statement();
@@ -415,7 +426,7 @@ std::unique_ptr<Block> Parser::block(Namespace &namesp) {
     }
   }
   expect(RIGHT_BRACE, "Expected '}' after block.");
-  return std::make_unique<Block>(std::move(res), namesp);
+  return std::make_unique<Block>(std::move(res), std::move(namesp));
 }
 
 Stmt Parser::expression_statement() {
@@ -436,7 +447,8 @@ Stmt Parser::expression_statement() {
     }
     Expr rhs = expression_bp(0);
     return Stmt{std::make_unique<Assign>(
-        op, Expr{std::move(expr)}, Expr{std::move(rhs)})};
+        op, Expr{std::move(expr)}, Expr{std::move(rhs)}
+    )};
   }
   default:
     break;
@@ -452,8 +464,10 @@ Expr Parser::expression_bp(int min_bp) {
   std::optional<Expr> lhs = std::nullopt;
   // parse LHS of expression
   if (prefix_binding_power(token.lexeme) != -1) {
-    lhs = Expr{std::make_unique<Unary>(to_unaryop(token.lexeme),
-        Expr(expression_bp(prefix_binding_power(token.lexeme))))};
+    lhs = Expr{std::make_unique<Unary>(
+        to_unaryop(token.lexeme),
+        Expr(expression_bp(prefix_binding_power(token.lexeme)))
+    )};
   }
   switch (token.lexeme) {
     // clang-format off
@@ -476,7 +490,7 @@ Expr Parser::expression_bp(int min_bp) {
         }
         else {
           expect(LEFT_BRACE, "Expected '{' after 'else'.");
-          branches.emplace_back(std::make_unique<If::Branch>(Expr(std::monostate{}), block()));
+          branches.emplace_back(std::make_unique<If::Branch>(Expr{std::make_unique<Literal>(true)}, block()));
           break;
         }
       }
@@ -507,7 +521,8 @@ Expr Parser::expression_bp(int min_bp) {
         advance();
         std::vector<Expr> args = argument_list();
         lhs = Expr{std::make_unique<FunCall>(
-            Expr{std::move(lhs.value())}, std::move(args))};
+            Expr{std::move(lhs.value())}, std::move(args)
+        )};
         break;
       }
       case DOT: {
@@ -535,7 +550,8 @@ Expr Parser::expression_bp(int min_bp) {
       auto rhs = expression_bp(min_bp + 1);
       // if assign was an Expr, would do switch here
       lhs = Expr{std::make_unique<Binary>(
-          op, Expr{std::move(lhs.value())}, Expr{std::move(rhs)})};
+          op, Expr{std::move(lhs.value())}, Expr{std::move(rhs)}
+      )};
       continue;
     }
     // not postfix or infix, end
@@ -634,15 +650,31 @@ std::vector<Expr> Parser::argument_list() {
 
 AST Parser::parse() {
   std::vector<Declaration> decls;
-  Namespace globals;
-  namespaces.push_back(&globals);
+  auto globals = std::make_unique<Namespace>(nullptr);
+  namespaces.push_back(globals.get());
+
+  std::vector<std::unique_ptr<BuiltinType>> builtin_types;
+
+  for (auto name : default_builtin_types) {
+    /*
+    if (globals.names.contains(name)) {
+      fmt::print(stderr, "Globals contained name '{}' matching builtin.\n",
+    name); abort();
+    }
+    */
+    builtin_types.emplace_back(std::make_unique<BuiltinType>(name));
+    TypeId id = reserve_new_type(builtin_types.back()->name);
+    link_type(id, builtin_types.back().get());
+  }
+
   while (!is_at_end()) {
     Stmt decl = toplevel_declaration();
     if (!decl.is<std::monostate>()) {
       decls.emplace_back(std::move(decl.as<Declaration>()));
     }
   }
-  return AST(std::move(decls), globals);
+
+  return AST(std::move(decls), std::move(builtin_types), std::move(globals));
 }
 
 } // namespace cinnabar

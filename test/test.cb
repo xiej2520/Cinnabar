@@ -5,7 +5,7 @@ fun main() {
   let c3 = '\'';
   
   var a = 1.234
-  let b = 1100
+  let b = 1.45
   let c = a - b
   a + b
   a += b
@@ -29,7 +29,7 @@ fun main() {
   else {
     a = 4.5
   }
-  b = if true { 2 } else { 1 }
+  b = if true { 2.0 } else { 1.1 }
   let d = { 2 } + 4
   {
     let d = 3;
@@ -45,12 +45,7 @@ struct S {
     fun U() { }
   }
   T i32
-  T i32
 }
 
-a + 3
-
-b = 4
-a += b
 
 ; ;

@@ -38,3 +38,19 @@ Base type is named `HashMap`, gets an entry in the type table.
 Parameterized `m` is `HashMap[i32, bool]`, also gets an entry in the type table.
 Use canonical name `HashMap[i32, bool]` for lookup, mangled name `HashMap_i32_bool_ABC`
 for backend?
+
+[https://doc.rust-lang.org/reference/expressions.html](Rust Expressions)
+
+* Place expressions: represents memory location
+  * Left of assignment
+  * Operand of borrow, address of, dereference
+  * Operand of field expr
+  * Operand of array indexing
+  * Initializer of let
+* Assignee expression: left operand of assignment expression
+  * Place expression
+  * Underscore
+  * Tuple of assignee expression
+  * Slice of assignee expression
+  * Tuple structs, structs of assignee expression
+  * Unit struct

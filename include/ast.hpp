@@ -94,6 +94,8 @@ translation_unit_node
 
 namespace cinnabar {
 
+extern std::vector<std::string> default_builtin_types;
+
 // statements
 struct Stmt;
 struct Assign;
@@ -121,12 +123,14 @@ struct Literal;
 struct Variable;
 struct Unary;
 
-using DeclVariant =
-    std::variant<std::unique_ptr<EnumDecl>, std::unique_ptr<FunDecl>,
-        std::unique_ptr<StructDecl>, std::unique_ptr<VarDecl>>;
+using DeclVariant = std::variant<
+    std::unique_ptr<EnumDecl>, std::unique_ptr<FunDecl>,
+    std::unique_ptr<StructDecl>, std::unique_ptr<VarDecl>>;
 
 struct BuiltinType {
-  std::string name;
+  std::string name_str;
+  Token name;
+  BuiltinType(std::string name);
 };
 
 using DeclPtr =
@@ -138,6 +142,9 @@ using TypeId = int;
 struct GenType {
   std::string name;
   std::vector<GenType> params;
+
+  GenType(std::string_view name);
+  GenType(std::string_view name, std::vector<GenType> params);
   std::string to_string();
 };
 
@@ -148,7 +155,7 @@ struct Type {
     return std::holds_alternative<T>(type_decl_ptr);
   }
   template <typename T> T &as() { return std::get<T>(type_decl_ptr); }
-  std::string_view name();
+  std::string name();
 };
 
 struct Namespace {
@@ -156,7 +163,14 @@ struct Namespace {
   std::unordered_map<std::string_view, TypeId> type_decls;
   std::unordered_map<std::string_view, FunDecl *> fun_decls;
   std::unordered_map<std::string_view, VarDecl *> var_decls;
-  Namespace() = default;
+  
+  Namespace *parent;
+
+  Namespace(Namespace *parent);
+  
+  TypeId get_type(std::string_view type_name);
+  FunDecl *get_fun(std::string_view fun_name);
+  VarDecl *get_var(std::string_view var_name);
   std::string to_string(int cur);
 };
 
@@ -180,17 +194,18 @@ constexpr std::size_t variant_index() {
 // expressions
 //
 
-using ExprVariant = std::variant<std::monostate, std::unique_ptr<Binary>,
-    std::unique_ptr<Block>, std::unique_ptr<DotRef>, std::unique_ptr<FunCall>,
-    std::unique_ptr<If>, std::unique_ptr<Literal>, std::unique_ptr<Unary>,
-    std::unique_ptr<Variable>>;
+using ExprVariant = std::variant<
+    std::unique_ptr<Binary>, std::unique_ptr<Block>, std::unique_ptr<DotRef>,
+    std::unique_ptr<FunCall>, std::unique_ptr<If>, std::unique_ptr<Literal>,
+    std::unique_ptr<Unary>, std::unique_ptr<Variable>>;
 
 struct Expr {
   ExprVariant node;
   Expr(ExprVariant node);
-  template <typename T> bool is() {
-    return std::holds_alternative<T>(node);
-  }
+
+  TypeId type();
+
+  template <typename T> bool is() { return std::holds_alternative<T>(node); }
   template <typename T> T &as() { return std::get<T>(node); }
   std::string s_expr(int cur, int ind); // current indent, indent
 };
@@ -206,8 +221,8 @@ struct Binary {
 struct Block {
   TypeId type = -1;
   std::vector<Stmt> stmts;
-  Namespace namesp;
-  Block(std::vector<Stmt> stmts, Namespace namesp);
+  std::unique_ptr<Namespace> namesp;
+  Block(std::vector<Stmt> stmts, std::unique_ptr<Namespace> namesp);
   std::string to_string(int cur, int ind);
 };
 
@@ -228,6 +243,7 @@ struct FunCall {
 struct If {
   TypeId type = -1;
   struct Branch {
+    // else branch will be a Literal true condition as the last block
     Expr condition;
     std::unique_ptr<Block> block;
     Branch(Expr condition, std::unique_ptr<Block> block);
@@ -274,17 +290,22 @@ struct EnumDecl {
   Token name;
   std::vector<std::pair<Token, GenType>> variants;
   std::vector<std::unique_ptr<FunDecl>> methods;
-  Namespace namesp;
-  EnumDecl(Token name, std::vector<std::pair<Token, GenType>> variants,
-      std::vector<std::unique_ptr<FunDecl>> methods, Namespace namesp);
+  std::unique_ptr<Namespace> namesp;
+  EnumDecl(
+      Token name, std::vector<std::pair<Token, GenType>> variants,
+      std::vector<std::unique_ptr<FunDecl>> methods, std::unique_ptr<Namespace> namesp
+  );
 };
 
 struct FunDecl {
   Token name;
   std::vector<std::unique_ptr<VarDecl>> params;
+  GenType return_type;
   std::unique_ptr<Block> body;
-  FunDecl(Token name, std::vector<std::unique_ptr<VarDecl>> params,
-      std::unique_ptr<Block> body);
+  FunDecl(
+      Token name, std::vector<std::unique_ptr<VarDecl>> params,
+      GenType return_type, std::unique_ptr<Block> body
+  );
   std::string s_expr(int cur, int ind);
 };
 
@@ -292,16 +313,22 @@ struct StructDecl {
   Token name;
   std::vector<std::pair<Token, GenType>> fields;
   std::vector<std::unique_ptr<FunDecl>> methods;
-  Namespace namesp;
-  StructDecl(Token name, std::vector<std::pair<Token, GenType>> fields,
-      std::vector<std::unique_ptr<FunDecl>> methods, Namespace namesp);
+  std::unique_ptr<Namespace> namesp;
+  StructDecl(
+      Token name, std::vector<std::pair<Token, GenType>> fields,
+      std::vector<std::unique_ptr<FunDecl>> methods, std::unique_ptr<Namespace> namesp
+  );
 };
 
 struct VarDecl {
   Token name;
+  TypeId type = -1;
   std::optional<GenType> type_specifier;
-  Expr initializer;
-  VarDecl(Token name, std::optional<GenType> type_specifier, Expr initializer);
+  std::optional<Expr> initializer;
+  VarDecl(
+      Token name, std::optional<GenType> type_specifier,
+      std::optional<Expr> initializer
+  );
 };
 
 struct Declaration {
@@ -322,10 +349,10 @@ struct For {};
 struct Return {};
 struct While {};
 
-using StmtVariant = std::variant<std::monostate, std::unique_ptr<Assign>,
-    std::unique_ptr<Break>, std::unique_ptr<Continue>, Declaration,
-    std::unique_ptr<Expression>, std::unique_ptr<For>, std::unique_ptr<Return>,
-    std::unique_ptr<While>>;
+using StmtVariant = std::variant<
+    std::monostate, std::unique_ptr<Assign>, std::unique_ptr<Break>,
+    std::unique_ptr<Continue>, Declaration, std::unique_ptr<Expression>,
+    std::unique_ptr<For>, std::unique_ptr<Return>, std::unique_ptr<While>>;
 
 struct Stmt {
   StmtVariant node;
@@ -340,9 +367,11 @@ struct AST {
   std::vector<Type> types;
   std::vector<std::unique_ptr<BuiltinType>> builtin_types;
 
-  Namespace globals;
+  std::unique_ptr<Namespace> globals;
 
-  AST(std::vector<Declaration> decls, Namespace globals);
+  AST(std::vector<Declaration> decls,
+      std::vector<std::unique_ptr<BuiltinType>> builtin_types,
+      std::unique_ptr<Namespace> globals);
 
   std::string to_string();
 };

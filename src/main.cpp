@@ -1,6 +1,6 @@
 #include "lexer.hpp"
 #include "parser.hpp"
-#include "typecheck_resolver.hpp"
+#include "type_resolver.hpp"
 
 #include "fmt/core.h"
 #include <fstream>

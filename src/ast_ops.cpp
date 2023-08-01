@@ -89,7 +89,6 @@ std::string to_string(BinaryOp b) {
     case BinaryOp::BIT_AND: return "&";
     case BinaryOp::BIT_OR: return "|";
     case BinaryOp::BIT_XOR: return "^";
-    case BinaryOp::BIT_NOT: return "~";
     case BinaryOp::LEFT_SHIFT: return "<<";
     case BinaryOp::RIGHT_SHIFT: return ">>";
     // clang-format on
