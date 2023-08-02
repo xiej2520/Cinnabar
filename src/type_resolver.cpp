@@ -36,11 +36,18 @@ TypeId TypeResolver::find_type(GenType type) {
   error(fmt::format("Could not find type {}", type.name));
 }
 
+const Type &TypeResolver::get_type(TypeId id) {
+  if (id < 0 || static_cast<size_t>(id) >= ast.types.size()) {
+    error(fmt::format("TypeId {} out of bounds", id));
+  }
+  return ast.types[id];
+}
+
 TypeId
 TypeResolver::find_binary_op(BinaryOp op, TypeId lhs_type, TypeId rhs_type) {
   if (builtin_numeric_types.contains(lhs_type) && builtin_numeric_types.contains(rhs_type)) {
     if (lhs_type != rhs_type) {
-      error(fmt::format( "Invalid binary operation: {} {} {}\n", to_string(op), lhs_type, rhs_type));
+      error(lhs_type, rhs_type);
     }
     switch (op) {
     case BinaryOp::ADD:
@@ -76,7 +83,6 @@ void TypeResolver::resolve(Stmt &stmt) {
       // check for assignable
       if (stmt->lhs.is<std::unique_ptr<Variable>>()) {
         // assign to variable
-        
       }
       else if (stmt->lhs.is<std::unique_ptr<DotRef>>()) {
         // field
@@ -173,8 +179,81 @@ void TypeResolver::resolve(Expr &expr) {
       expr->type = find_binary_op(expr->op, expr->left.type(), expr->right.type());
     },
     [&](std::unique_ptr<Block> &expr) { resolve(*expr); },
-    [&](std::unique_ptr<DotRef> &) {},
-    [&](std::unique_ptr<FunCall> &) {},
+    [&](std::unique_ptr<DotRef> &expr) {
+      resolve(expr->lvalue);
+      const Type &t = get_type(expr->lvalue.type());
+      expr->type = std::visit(overload{
+        [&](BuiltinType *) {
+          return builtin_type_map["unit"]; // for now
+        },
+        [&](EnumDecl *) {
+          return builtin_type_map["unit"]; // for now
+        },
+        [&](StructDecl *decl) {
+          for (auto &p : decl->fields) {
+            if (p.first.str == expr->name.str) {
+              return find_type(p.second);
+            }
+          }
+          for (auto &fun_decl : decl->methods) {
+            if (fun_decl->name.str == expr->name.str) {
+              expr->fun_decl = fun_decl.get();
+              return builtin_type_map["__fun"];
+            }
+          }
+          error(fmt::format("Name {} in dot ref not found.", expr->name.str));
+        }
+      }, t.type_decl_ptr);
+    },
+    [&](std::unique_ptr<FunCall> &expr) {
+      resolve(expr->callee);
+      if (expr->callee.type() != builtin_type_map["__fun"]) {
+        error("Type of callee was not a function.");
+      }
+
+      FunDecl *fun_decl = nullptr;
+      // functions and struct constructors callable
+      if (expr->callee.is<std::unique_ptr<Variable>>()) {
+        Variable &var = *expr->callee.as<std::unique_ptr<Variable>>();
+        std::visit(overload{
+          [&](BuiltinType *) { error("Builtin type not callable."); },
+          [&](EnumDecl *) { error("Enum type not callable."); },
+          [&](FunDecl *decl) {
+            expr->type = find_type(decl->return_type);
+            fun_decl = decl;
+          },
+          [&](StructDecl *decl) {
+            error("Struct not callable");
+            expr->type = find_type(decl->name.str);
+          },
+          [&](VarDecl *) { error("Variable not callable."); },
+        }, var.decl);
+      }
+      // dotref to function callable
+      else if (expr->callee.is<std::unique_ptr<DotRef>>()) {
+        DotRef &dot = *expr->callee.as<std::unique_ptr<DotRef>>();
+        if (dot.fun_decl == nullptr) {
+          error("Field is not callable");
+        }
+        fun_decl = dot.fun_decl;
+        expr->type = find_type(dot.fun_decl->return_type);
+      }
+      else {
+        error("Callee is not callable.");
+      }
+      
+      // check arity
+      if (fun_decl->params.size() != expr->args.size()) {
+        error("Function declaration has different arity than function call.");
+      }
+      // check function type match
+      for (size_t i=0; i<expr->args.size(); i++) {
+        resolve(expr->args[i]);
+        if (expr->args[i].type() != fun_decl->params[i]->type) {
+          error(fun_decl->params[i]->type, expr->args[i].type());
+        }
+      }
+    },
     [&](std::unique_ptr<If> &expr) {
       for (auto &branch : expr->branches) {
         resolve(branch->condition);
@@ -204,6 +283,11 @@ void TypeResolver::resolve(Expr &expr) {
     },
     [&](std::unique_ptr<Unary> &) {},
     [&](std::unique_ptr<Variable> &expr) {
+      // "variable" is identifier, can be var, fun, struct, enum
+      FunDecl *fun_decl = namespaces.back()->get_fun(expr->name.str);
+      if (fun_decl != nullptr) {
+        
+      }
       VarDecl *var_decl = namespaces.back()->get_var(expr->name.str);
       if (var_decl == nullptr) {
         error(fmt::format("Could not find variable named {}", expr->name.str));

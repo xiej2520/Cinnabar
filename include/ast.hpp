@@ -151,6 +151,10 @@ struct GenType {
 struct Type {
   TypeDeclPtr type_decl_ptr;
   TypeId id;
+  GenType concrete_type;
+  
+  Type(TypeDeclPtr decl, TypeId id);
+
   template <typename T> bool is() {
     return std::holds_alternative<T>(type_decl_ptr);
   }
@@ -171,6 +175,7 @@ struct Namespace {
   TypeId get_type(std::string_view type_name);
   FunDecl *get_fun(std::string_view fun_name);
   VarDecl *get_var(std::string_view var_name);
+  DeclPtr get_name(std::string_view name);
   std::string to_string(int cur);
 };
 
@@ -229,6 +234,8 @@ struct Block {
 struct DotRef {
   TypeId type = -1;
   Expr lvalue;
+  // var.f()
+  FunDecl *fun_decl = nullptr; // change to Variable?
   Token name;
   DotRef(Expr lvalue, Token name);
 };
@@ -264,6 +271,7 @@ struct Literal {
 struct Variable {
   TypeId type = -1;
   Token name;
+  DeclPtr decl = static_cast<BuiltinType *>(nullptr);
   Variable(Token name);
 };
 

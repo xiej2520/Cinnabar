@@ -25,6 +25,7 @@ struct TypeResolver {
 
   TypeId find_type(std::string_view name);
   TypeId find_type(GenType type);
+  const Type &get_type(TypeId id);
   TypeId find_binary_op(BinaryOp op, TypeId lhs_type, TypeId rhs_type);
 
   void resolve();

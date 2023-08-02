@@ -135,3 +135,14 @@ else {
   5;
 };
 ```
+
+
+Use `\(param type...)` for lambdas.
+
+```Cinnabar
+fun main() {
+  let gcd = \(a i32 b i32) {
+    return if b == 0 { a } else { gcd(b, a % b) }
+  }
+}
+```

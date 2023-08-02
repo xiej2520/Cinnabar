@@ -11,11 +11,12 @@ using std::vector;
 using enum Lexeme;
 
 std::vector<std::string> default_builtin_types = {
+    "__fun", // for type resolution purposes
     "unit",       "i8",  "i16",    "i32",   "i64",      "u8",
     "u16",        "u32", "u64",    "f32",   "f64",      "char",
-    "bool",       "Ref", "VarRef", "Slice", "VarSlice",
+    "bool",       "Ref", "VarRef", "Span", "VarSpan",
 
-    "Slice[char]" // String for now
+    "Span[char]" // String for now
 };
 
 BuiltinType::BuiltinType(std::string name)
@@ -37,17 +38,19 @@ std::string GenType::to_string() {
   return res;
 }
 
+Type::Type(TypeDeclPtr decl, TypeId id): type_decl_ptr(decl), id(id), concrete_type("") {}
+
 // clang-format off
 std::string Type::name() {
   return std::visit(overload{
     [&](BuiltinType *decl) {
       return decl->name_str;
     },
-    [&](EnumDecl *decl) {
-      return std::string(decl->name.str);
+    [&](EnumDecl *) {
+      return concrete_type.to_string();
     },
-    [&](StructDecl *decl) {
-      return std::string(decl->name.str);
+    [&](StructDecl *) {
+      return concrete_type.to_string();
     },
   }, type_decl_ptr);
 }
@@ -81,6 +84,12 @@ VarDecl *Namespace::get_var(std::string_view var_name) {
     return nullptr;
   }
   return parent->get_var(var_name);
+}
+
+DeclPtr Namespace::get_name(std::string_view name) {
+  if (type_decls.contains(name)) {
+    
+  }
 }
 
 std::string Namespace::to_string(int cur) {
