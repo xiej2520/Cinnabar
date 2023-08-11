@@ -9,89 +9,6 @@
 #include <variant>
 #include <vector>
 
-/*
-Statements
-// Assignment
-// Block
-// Break
-// Continue
-// Declaration
-// Expression
-// // Binary
-// // Call
-// // Grouping
-// // If
-// // Literal
-// // Unary
-// // Variable
-// For
-// Function
-// Return
-// While
-*/
-
-/*
-C++2
-primary_expression_node
-  expression_list_node
-  id_expression_node
-    unqualified_id_node
-    qualified_id_node
-  declaration_node
-  inspect_expression_node
-  literal_node
-
-term
-  expression_node
-  type_id_node
-    unqualified_id_node
-    qualified_id_node
-
-statement_node
-  expression_statement_node
-  compound_statement_node
-  selection_statement_node
-  declaration_node
-    function_type_node
-      single_type_id
-      parameter_declaration_list_node
-    type_id_node
-    type_node
-    namespace_node
-    alias_node
-      type_id_node
-      id_expression_node
-      expression_node
-  return_statement_node
-  iteration_statement_node
-  contract_node
-  inspect_expression_node
-  jump_statement_node
-
-binary_expression_node
-
-is_as_expression_node
-  prefix_expression_node
-    postfix_expression_node
-
-assignment_expression_lhs_rhs
-expression_list_node
-  term
-
-capture
-capture_group
-
-alternative_node
-
-parameter_declaration_node
-parameter_declaration_list_node
-
-type_node
-namespace_node
-
-translation_unit_node
-*/
-
 namespace cinnabar {
 
 extern std::vector<std::string> default_builtin_types;
@@ -163,18 +80,13 @@ struct Type {
 };
 
 struct Namespace {
-  std::unordered_set<std::string_view> names;
-  std::unordered_map<std::string_view, TypeId> type_decls;
-  std::unordered_map<std::string_view, FunDecl *> fun_decls;
-  std::unordered_map<std::string_view, VarDecl *> var_decls;
+  std::unordered_map<std::string_view, DeclPtr> names;
+  std::unordered_map<std::string_view, TypeId> concrete_types;
   
   Namespace *parent;
 
   Namespace(Namespace *parent);
   
-  TypeId get_type(std::string_view type_name);
-  FunDecl *get_fun(std::string_view fun_name);
-  VarDecl *get_var(std::string_view var_name);
   DeclPtr get_name(std::string_view name);
   std::string to_string(int cur);
 };

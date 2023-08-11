@@ -58,58 +58,47 @@ std::string Type::name() {
 
 Namespace::Namespace(Namespace *parent): parent(parent) {}
 
-TypeId Namespace::get_type(std::string_view type_name) {
-  if (type_decls.contains(type_name)) {
-    return type_decls[type_name];
-  }
-  else if (parent == nullptr) {
-    return -1;
-  }
-  return parent->get_type(type_name);
-}
-FunDecl *Namespace::get_fun(std::string_view fun_name) {
-  if (fun_decls.contains(fun_name)) {
-    return fun_decls[fun_name];
-  }
-  else if (parent == nullptr) {
-    return nullptr;
-  }
-  return parent->get_fun(fun_name);
-}
-VarDecl *Namespace::get_var(std::string_view var_name) {
-  if (var_decls.contains(var_name)) {
-    return var_decls[var_name];
-  }
-  else if (parent == nullptr) {
-    return nullptr;
-  }
-  return parent->get_var(var_name);
-}
-
 DeclPtr Namespace::get_name(std::string_view name) {
-  if (type_decls.contains(name)) {
-    
+  if (names.contains(name)) {
+    return names[name];
   }
+  else if (parent == nullptr) {
+    return static_cast<BuiltinType *>(nullptr);
+  }
+  return parent->get_name(name);
 }
 
 std::string Namespace::to_string(int cur) {
   auto res = fmt::format("{:{}}Namespace: ", "", cur);
-  if (!type_decls.empty()) {
+  std::vector<std::string_view> builtin_names;
+  std::vector<std::string_view> type_names;
+  std::vector<std::string_view> fun_names;
+  std::vector<std::string_view> var_names;
+  for (auto &p : names) {
+    std::visit(overload{
+      [&](BuiltinType *) { builtin_names.push_back(p.first); },
+      [&](StructDecl *) { type_names.push_back(p.first); },
+      [&](EnumDecl *) { type_names.push_back(p.first); },
+      [&](FunDecl *) { fun_names.push_back(p.first); },
+      [&](VarDecl *) { var_names.push_back(p.first); },
+    }, p.second);
+  }
+  if (!type_names.empty()) {
     res.append("Types: ");
-    for (auto &p : type_decls) {
-      res.append(fmt::format("{}({}), ", p.first, p.second));
+    for (auto &name : type_names) {
+      res.append(fmt::format("{}, ", name));
     }
   }
-  if (!fun_decls.empty()) {
+  if (!fun_names.empty()) {
     res.append("Functions: ");
-    for (auto &p : fun_decls) {
-      res.append(fmt::format("{}, ", p.first));
+    for (auto &name : fun_names) {
+      res.append(fmt::format("{}, ", name));
     }
   }
-  if (!var_decls.empty()) {
+  if (!var_names.empty()) {
     res.append("Variables: ");
-    for (auto &p : var_decls) {
-      res.append(fmt::format("{}, ", p.first));
+    for (auto &name : var_names) {
+      res.append(fmt::format("{}, ", name));
     }
   }
   res.pop_back();
@@ -229,12 +218,7 @@ std::string Declaration::s_expr(int cur, int ind) {
       std::string res =
           fmt::format("{:{}}(Enum {}\n", "", cur, decl->name.str);
       if (!decl->namesp->names.empty()) {
-        res += fmt::format("{:{}}Names: ", "", cur + ind);
-        for (auto &name : decl->namesp->names) {
-          res += fmt::format("{}, ", name);
-        }
-        res.pop_back();
-        res.back() = '\n';
+        res += decl->namesp->to_string(cur + ind);
       }
       for (auto &p : decl->variants) {
         res += fmt::format("{:{}}{} {}\n", "", cur + ind,

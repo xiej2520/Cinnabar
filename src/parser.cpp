@@ -11,91 +11,35 @@ Parser::Parser(std::string source) : lexer(std::move(source)) {
   tokens = lexer.get_tokens();
 }
 
-#define RESERVE(table, uninitval)                                              \
-  Namespace *current = namespaces.back();                                      \
-  if (current->names.contains(name.str)) {                                     \
-    throw error_at(                                                            \
-        name, fmt::format("Redefinition of previous name \'{}\'.", name.str)   \
-    );                                                                         \
-  }                                                                            \
-  current->names.insert(name.str);                                             \
-  current->table[name.str] = uninitval
-
-#define LINK(table, decl)                                                      \
-  Namespace *current = namespaces.back();                                      \
-  if (!current->names.contains(name.str)) {                                    \
-    throw error_at(name, fmt::format("Internal parse error, aborting..."));    \
-    abort();                                                                   \
-  }                                                                            \
-  current->table[name.str] = decl;
-
-TypeId Parser::reserve_new_type(const Token &name) {
+template<typename T>
+void Parser::reserve_name(const Token &name) {
   Namespace *current = namespaces.back();
   if (current->names.contains(name.str)) {
     throw error_at(
         name, fmt::format("Redefinition of previous name \'{}\'.", name.str)
     );
   }
-  int type_id = types.size();
-  types.push_back(
-      {static_cast<StructDecl *>(nullptr), static_cast<int>(type_id)}
-  );
-  current->names.insert(name.str);
-  current->type_decls[name.str] = type_id;
-  return type_id;
+  current->names[name.str] = static_cast<T>(nullptr);
 }
 
-void Parser::link_type(TypeId id, TypeDeclPtr type_decl_ptr) {
-  types[id].type_decl_ptr = type_decl_ptr;
+template<typename T>
+void Parser::link_name(const Token &name, T decl) {
+  Namespace *current = namespaces.back();
+  if (!current->names.contains(name.str) || current->names[name.str] != DeclPtr(static_cast<T>(nullptr))) {
+    throw error_at(name, fmt::format("Internal error with linking name {}.", name.str));
+  }
+  current->names[name.str] = decl;
 }
 
-void Parser::reserve_fun(const Token &name) {
-  RESERVE(fun_decls, static_cast<FunDecl *>(nullptr));
-}
-
-void Parser::link_fun(const Token &name, FunDecl *fun_decl) {
-  LINK(fun_decls, fun_decl)
-}
-void Parser::reserve_var(const Token &name) {
-  RESERVE(var_decls, static_cast<VarDecl *>(nullptr));
-}
-
-void Parser::link_var(const Token &name, VarDecl *var_decl) {
-  LINK(var_decls, var_decl)
-}
-
-#undef RESERVE
-#undef LINK
-
-void Parser::add_type(const Token &name, TypeId id) {
+template<typename T>
+void Parser::add_name(const Token &name, T decl) {
   Namespace *current = namespaces.back();
   if (current->names.contains(name.str)) {
     throw error_at(
         name, fmt::format("Redefinition of previous name \'{}\'.", name.str)
     );
   }
-  current->names.insert(name.str);
-  current->type_decls[name.str] = id;
-}
-void Parser::add_fun(const Token &name, FunDecl *fun_decl) {
-  Namespace *current = namespaces.back();
-  if (current->names.contains(name.str)) {
-    throw error_at(
-        name, fmt::format("Redefinition of previous name \'{}\'.", name.str)
-    );
-  }
-  current->names.insert(name.str);
-  current->fun_decls[name.str] = fun_decl;
-}
-void Parser::add_var(const Token &name, VarDecl *var_decl) {
-  Namespace *current = namespaces.back();
-  if (current->names.contains(name.str)) {
-    throw error_at(
-        name, fmt::format("Redefinition of previous name \'{}\'.", name.str)
-    );
-  }
-  current->names.insert(name.str);
-  current->var_decls[name.str] = var_decl;
+  current->names[name.str] = decl;
 }
 
 bool Parser::is_at_end() { return cur_token().lexeme == Lexeme::END_OF_FILE; }
@@ -234,14 +178,14 @@ std::unique_ptr<StructDecl> Parser::struct_declaration() {
   std::vector<std::unique_ptr<FunDecl>> methods;
   auto namesp = std::make_unique<Namespace>(namespaces.back());
   namespaces.push_back(namesp.get());
-  TypeId id = reserve_new_type(name);
+  reserve_name<StructDecl *>(name);
 
   std::unordered_set<std::string_view> field_names;
   try {
     while (!check(RIGHT_BRACE) && !is_at_end()) {
       if (match(FUN)) {
         methods.emplace_back(function_declaration());
-        add_fun(methods.back()->name, methods.back().get());
+        add_name<FunDecl *>(methods.back()->name, methods.back().get());
       } else if (match(SEMICOLON)) {
         // skip
       } else {
@@ -260,10 +204,10 @@ std::unique_ptr<StructDecl> Parser::struct_declaration() {
 
   auto res =
       std::make_unique<StructDecl>(name, fields, std::move(methods), std::move(namesp));
-  link_type(id, res.get());
+  link_name<StructDecl *>(name, res.get());
 
   namespaces.pop_back();
-  add_type(name, id);
+  add_name<StructDecl *>(name, res.get());
 
   expect(RIGHT_BRACE, "Expect '}' after struct body");
   return res;
@@ -277,14 +221,14 @@ std::unique_ptr<EnumDecl> Parser::enum_declaration() {
   std::vector<std::unique_ptr<FunDecl>> methods;
   auto namesp = std::make_unique<Namespace>(namespaces.back());
   namespaces.push_back(namesp.get());
-  TypeId id = reserve_new_type(name);
+  reserve_name<EnumDecl *>(name);
 
   std::unordered_set<std::string_view> variant_names;
   try {
     while (!check(RIGHT_BRACE) && !is_at_end()) {
       if (match(FUN)) {
         methods.emplace_back(function_declaration());
-        add_fun(methods.back()->name, methods.back().get());
+        add_name<FunDecl *>(methods.back()->name, methods.back().get());
       } else if (match(SEMICOLON)) {
         // continue
       } else {
@@ -303,10 +247,10 @@ std::unique_ptr<EnumDecl> Parser::enum_declaration() {
 
   auto res =
       std::make_unique<EnumDecl>(name, variants, std::move(methods), std::move(namesp));
-  link_type(id, res.get());
+  link_name<EnumDecl *>(name, res.get());
 
   namespaces.pop_back();
-  add_type(name, id);
+  add_name<EnumDecl *>(name, res.get());
 
   expect(RIGHT_BRACE, "Expect '}' after enum body.");
   return res;
@@ -319,7 +263,7 @@ std::unique_ptr<FunDecl> Parser::function_declaration() {
   auto namesp = std::make_unique<Namespace>(namespaces.back());
   namespaces.push_back(namesp.get());
   // function can refer to itself in body
-  reserve_fun(name);
+  reserve_name<FunDecl *>(name);
 
   std::vector<std::unique_ptr<VarDecl>> parameters;
   GenType return_type("unit");
@@ -372,7 +316,7 @@ std::unique_ptr<VarDecl> Parser::variable_declaration() {
   }
   expect(SEMICOLON, "Expect ';' (EOL) after variable declaration.");
   auto res = std::make_unique<VarDecl>(name, type, std::move(initializer));
-  add_var(name, res.get());
+  add_name<VarDecl *>(name, res.get());
   return res;
 }
 
@@ -663,8 +607,7 @@ AST Parser::parse() {
     }
     */
     builtin_types.emplace_back(std::make_unique<BuiltinType>(name));
-    TypeId id = reserve_new_type(builtin_types.back()->name);
-    link_type(id, builtin_types.back().get());
+    add_name<BuiltinType *>(builtin_types.back()->name, builtin_types.back().get());
   }
 
   while (!is_at_end()) {

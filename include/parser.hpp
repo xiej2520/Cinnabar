@@ -19,20 +19,15 @@ class Parser {
   std::vector<Namespace *> namespaces;
   std::vector<Type> types;
 
-  // adds a type to the type table and adds an entry to the local namespace
-  TypeId reserve_new_type(const Token &name);
-  // links the type in the type table to a decl ptr
-  void link_type(TypeId id, TypeDeclPtr type_decl_ptr);
-
-  void reserve_fun(const Token &name);
-  void link_fun(const Token &name, FunDecl *fun_decl);
-  void reserve_var(const Token &name);
-  void link_var(const Token &name, VarDecl *var_decl);
-
-  // adds the type to the local namespace
-  void add_type(const Token &name, TypeId id);
-  void add_fun(const Token &name, FunDecl *fun_decl);
-  void add_var(const Token &name, VarDecl *var_decl);
+  // reserves name with nullptr
+  template<typename T>
+  void reserve_name(const Token &name);
+  // links a declaration with a previously reserved name
+  template<typename T>
+  void link_name(const Token &name, T decl);
+  // adds a name and its declaration
+  template<typename T>
+  void add_name(const Token &name, T decl);
 
   bool is_at_end();
   Token cur_token();
