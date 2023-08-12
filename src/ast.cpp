@@ -26,7 +26,7 @@ GenType::GenType(std::string_view name) : name(name) {}
 GenType::GenType(std::string_view name, vector<GenType> params)
     : name(name), params(params){};
 
-std::string GenType::to_string() {
+std::string GenType::to_string() const {
   auto res = name;
   if (!params.empty()) {
     res.push_back('[');
@@ -38,7 +38,7 @@ std::string GenType::to_string() {
   return res;
 }
 
-Type::Type(TypeDeclPtr decl, TypeId id): type_decl_ptr(decl), id(id), concrete_type("") {}
+Type::Type(TypeDeclPtr decl, TypeId id, GenType concrete_type): type_decl_ptr(decl), id(id), concrete_type(std::move(concrete_type)) {}
 
 // clang-format off
 std::string Type::name() {
@@ -76,7 +76,7 @@ std::string Namespace::to_string(int cur) {
   std::vector<std::string_view> var_names;
   for (auto &p : names) {
     std::visit(overload{
-      [&](BuiltinType *) { builtin_names.push_back(p.first); },
+      [&](BuiltinType *) { type_names.push_back(p.first); },
       [&](StructDecl *) { type_names.push_back(p.first); },
       [&](EnumDecl *) { type_names.push_back(p.first); },
       [&](FunDecl *) { fun_names.push_back(p.first); },

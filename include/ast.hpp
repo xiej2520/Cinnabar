@@ -62,7 +62,7 @@ struct GenType {
 
   GenType(std::string_view name);
   GenType(std::string_view name, std::vector<GenType> params);
-  std::string to_string();
+  std::string to_string() const;
 };
 
 struct Type {
@@ -70,7 +70,7 @@ struct Type {
   TypeId id;
   GenType concrete_type;
   
-  Type(TypeDeclPtr decl, TypeId id);
+  Type(TypeDeclPtr decl, TypeId id, GenType concrete_type);
 
   template <typename T> bool is() {
     return std::holds_alternative<T>(type_decl_ptr);
@@ -81,7 +81,8 @@ struct Type {
 
 struct Namespace {
   std::unordered_map<std::string_view, DeclPtr> names;
-  std::unordered_map<std::string_view, TypeId> concrete_types;
+  // concrete types don't always have tokens, own the strings
+  std::unordered_map<std::string, TypeId> concrete_types;
   
   Namespace *parent;
 

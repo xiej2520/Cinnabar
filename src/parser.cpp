@@ -297,11 +297,13 @@ std::unique_ptr<FunDecl> Parser::function_declaration() {
     namespaces.pop_back();
     throw err;
   }
+  auto res = std::make_unique<FunDecl>(name, std::move(parameters), return_type, std::move(body));
+  link_name<FunDecl *>(name, res.get());
+
   namespaces.pop_back();
+  add_name<FunDecl *>(name, res.get());
   // check for return type
-  return std::make_unique<FunDecl>(
-      name, std::move(parameters), return_type, std::move(body)
-  );
+  return res;
 }
 
 std::unique_ptr<VarDecl> Parser::variable_declaration() {

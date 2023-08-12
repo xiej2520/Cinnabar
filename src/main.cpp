@@ -32,7 +32,7 @@ int main(int argc, char **argv) {
   cinnabar::Lexer lexer(src);
 
   lexer.lex();
-  fmt::print("{}\n\n", lexer.token_repr());
+  //fmt::print("{}\n\n", lexer.token_repr());
 
   cinnabar::Parser parser(src);
   cinnabar::AST ast = parser.parse();

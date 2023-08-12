@@ -1,13 +1,17 @@
 #include "type_resolver.hpp"
 
+#include <ranges>
+
 #include "fmt/core.h"
 
 namespace cinnabar {
 
 TypeResolver::TypeResolver(AST &ast) : ast(ast) {
+  namespaces.push_back(ast.globals.get());
   for (auto &name : default_builtin_types) {
-    builtin_type_map[name] = ast.globals->get_type(name);
+    builtin_type_map[name] = get_typeid(GenType(name));
   }
+  namespaces.pop_back();
   std::vector<std::string_view> numeric_type_names = {
       "i8",  "i16", "i32", "i64", "u8",   "u16",
       "u32", "u64", "f32", "f64", "char",
@@ -17,30 +21,90 @@ TypeResolver::TypeResolver(AST &ast) : ast(ast) {
   }
 }
 
-TypeId TypeResolver::find_type(std::string_view name) {
+TypeId TypeResolver::get_typeid(const GenType &gentype) {
+  std::string_view base_type = gentype.name;
   for (int i = namespaces.size() - 1; i >= 0; i--) {
-    if (namespaces[i]->type_decls.contains(name)) {
-      return namespaces[i]->type_decls[name];
+    Namespace &namesp = *namespaces[i];
+    if (namesp.names.contains(base_type)) {
+      DeclPtr decl = namesp.names[base_type];
+      auto gentype_str = gentype.to_string();
+      // clang-format off
+      return std::visit(overload{
+        [&](BuiltinType *decl) {
+          if (!namesp.concrete_types.contains(gentype_str)) {
+            return namesp.concrete_types[gentype_str] = add_type(gentype, decl);
+          }
+          return namesp.concrete_types[gentype_str];
+        },
+        [&](EnumDecl *decl) {
+          if (!namesp.concrete_types.contains(gentype_str)) {
+            return namesp.concrete_types[gentype_str] = add_type(gentype, decl);
+          }
+          return namesp.concrete_types[gentype_str];
+        },
+        [&](FunDecl *) { error(fmt::format("Name {} is a function, not a type.", base_type)); return -1; },
+        [&](StructDecl *decl) {
+          if (!namesp.concrete_types.contains(gentype_str)) {
+            return namesp.concrete_types[gentype_str] = add_type(gentype, decl);
+          }
+          return namesp.concrete_types[gentype_str];
+        },
+        [&](VarDecl *) { error(fmt::format("Name {} is a variable, not a type.", base_type)); return -1; },
+      }, decl);
+      // clang-format on
     }
   }
-  error(fmt::format("Could not find type {}", name));
-}
-
-// for now
-TypeId TypeResolver::find_type(GenType type) {
-  for (int i = namespaces.size() - 1; i >= 0; i--) {
-    if (namespaces[i]->type_decls.contains(type.name)) {
-      return namespaces[i]->type_decls[type.name];
-    }
-  }
-  error(fmt::format("Could not find type {}", type.name));
+  error(fmt::format("Base type {} not found.", base_type));
 }
 
 const Type &TypeResolver::get_type(TypeId id) {
   if (id < 0 || static_cast<size_t>(id) >= ast.types.size()) {
     error(fmt::format("TypeId {} out of bounds", id));
   }
-  return ast.types[id];
+  return ast.types.at(id);
+}
+
+
+FunDecl *TypeResolver::get_fun(std::string_view name) {
+  for (Namespace *namesp : namespaces | std::views::reverse) {
+    if (namesp->names.contains(name)) {
+      DeclPtr decl = namesp->names[name];
+      if (!std::holds_alternative<FunDecl *>(decl)) {
+        error(fmt::format("Name {} is not a function.", name));
+      }
+      return std::get<FunDecl *>(decl);
+    }
+  }
+  error(fmt::format("Function {} not found.", name));
+}
+
+VarDecl *TypeResolver::get_var(std::string_view name) {
+  for (int i = namespaces.size() - 1; i >= 0; i--) {
+    Namespace &namesp = *namespaces[i];
+    if (namesp.names.contains(name)) {
+      DeclPtr decl = namesp.names[name];
+      if (!std::holds_alternative<VarDecl *>(decl)) {
+        error(fmt::format("Name {} is not a variable.", name));
+      }
+      return std::get<VarDecl *>(decl);
+    }
+  }
+  error(fmt::format("Variable {} not found.", name));
+}
+
+DeclPtr TypeResolver::get_decl(std::string_view name) {
+  for (Namespace *namesp : namespaces | std::views::reverse) {
+    if (namesp->names.contains(name)) {
+      return namesp->names[name];
+    }
+  }
+  error(fmt::format("Name {} not found.", name));
+}
+
+TypeId TypeResolver::add_type(const GenType &type, TypeDeclPtr decl) {
+  TypeId res = ast.types.size();
+  ast.types.push_back(Type(decl, res, type));
+  return res;
 }
 
 TypeId
@@ -145,7 +209,7 @@ void TypeResolver::resolve(Declaration &decl) {
     },
     [&](std::unique_ptr<VarDecl> &decl) {
       if (decl->type_specifier.has_value()) {
-        decl->type = find_type(decl->type_specifier.value());
+        decl->type = get_typeid(decl->type_specifier.value());
         if (!decl->initializer.has_value()) {
           resolve(decl->initializer.value());
           if (decl->initializer.value().type() != decl->type) {
@@ -192,7 +256,7 @@ void TypeResolver::resolve(Expr &expr) {
         [&](StructDecl *decl) {
           for (auto &p : decl->fields) {
             if (p.first.str == expr->name.str) {
-              return find_type(p.second);
+              return get_typeid(p.second);
             }
           }
           for (auto &fun_decl : decl->methods) {
@@ -219,12 +283,12 @@ void TypeResolver::resolve(Expr &expr) {
           [&](BuiltinType *) { error("Builtin type not callable."); },
           [&](EnumDecl *) { error("Enum type not callable."); },
           [&](FunDecl *decl) {
-            expr->type = find_type(decl->return_type);
+            if (decl == nullptr) error("Internal error, declaration not found.");
+            expr->type = get_typeid(decl->return_type);
             fun_decl = decl;
           },
-          [&](StructDecl *decl) {
+          [&](StructDecl *) {
             error("Struct not callable");
-            expr->type = find_type(decl->name.str);
           },
           [&](VarDecl *) { error("Variable not callable."); },
         }, var.decl);
@@ -236,7 +300,7 @@ void TypeResolver::resolve(Expr &expr) {
           error("Field is not callable");
         }
         fun_decl = dot.fun_decl;
-        expr->type = find_type(dot.fun_decl->return_type);
+        expr->type = get_typeid(dot.fun_decl->return_type);
       }
       else {
         error("Callee is not callable.");
@@ -284,15 +348,18 @@ void TypeResolver::resolve(Expr &expr) {
     [&](std::unique_ptr<Unary> &) {},
     [&](std::unique_ptr<Variable> &expr) {
       // "variable" is identifier, can be var, fun, struct, enum
-      FunDecl *fun_decl = namespaces.back()->get_fun(expr->name.str);
-      if (fun_decl != nullptr) {
-        
+      DeclPtr decl = get_decl(expr->name.str);
+      if (FunDecl **fun_decl = std::get_if<FunDecl *>(&decl)) {
+        expr->type = get_typeid(GenType{"__fun"});
+        expr->decl = *fun_decl;
       }
-      VarDecl *var_decl = namespaces.back()->get_var(expr->name.str);
-      if (var_decl == nullptr) {
+      else if (VarDecl **var_decl = std::get_if<VarDecl *>(&decl)) {
+        expr->type = (*var_decl)->type;
+        expr->decl = *var_decl;
+      }
+      else {
         error(fmt::format("Could not find variable named {}", expr->name.str));
       }
-      expr->type = var_decl->type;
     },
   }, expr.node);
 }
@@ -310,7 +377,7 @@ void TypeResolver::resolve(Block &block) {
     block.type = block.stmts.back().as<std::unique_ptr<Expression>>()->expr.type();
   }
   else {
-    block.type = find_type("unit");
+    block.type = get_typeid(GenType{"unit"});
   }
 }
 // clang-format on
