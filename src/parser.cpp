@@ -185,7 +185,6 @@ std::unique_ptr<StructDecl> Parser::struct_declaration() {
     while (!check(RIGHT_BRACE) && !is_at_end()) {
       if (match(FUN)) {
         methods.emplace_back(function_declaration());
-        add_name<FunDecl *>(methods.back()->name, methods.back().get());
       } else if (match(SEMICOLON)) {
         // skip
       } else {
@@ -228,7 +227,6 @@ std::unique_ptr<EnumDecl> Parser::enum_declaration() {
     while (!check(RIGHT_BRACE) && !is_at_end()) {
       if (match(FUN)) {
         methods.emplace_back(function_declaration());
-        add_name<FunDecl *>(methods.back()->name, methods.back().get());
       } else if (match(SEMICOLON)) {
         // continue
       } else {
