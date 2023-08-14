@@ -44,8 +44,26 @@ struct S {
     T();
     fun U() { }
   }
-  T i32
+  t i32
 }
 
+struct T {
+  fun g() { }
+  s S
+}
+struct U {
+  v V
+  fun f() { }
+}
+
+enum E {
+  a i32
+  b i32
+  c
+}
+
+struct V {
+  t T
+}
 
 ; ;

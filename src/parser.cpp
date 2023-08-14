@@ -39,7 +39,7 @@ void Parser::add_name(const Token &name, T decl) {
         name, fmt::format("Redefinition of previous name \'{}\'.", name.str)
     );
   }
-  current->names[name.str] = decl;
+  current->names[name.str] = DeclPtr{decl};
 }
 
 bool Parser::is_at_end() { return cur_token().lexeme == Lexeme::END_OF_FILE; }
@@ -142,10 +142,10 @@ GenType Parser::type_name() {
   return GenType{std::string(name.str), params};
 }
 
-std::pair<Token, GenType> Parser::ident_type() {
-  std::pair<Token, GenType> res(Token(), GenType(""));
-  res.first = expect(IDENTIFIER, "Expected identifier.");
-  res.second = type_name();
+TypedName Parser::ident_type() {
+  TypedName res(Token(), GenType{""});
+  res.name = expect(IDENTIFIER, "Expected identifier.");
+  res.gentype = type_name();
   return res;
 }
 
@@ -174,25 +174,29 @@ std::unique_ptr<StructDecl> Parser::struct_declaration() {
   Token name = expect(IDENTIFIER, "Expected struct name.");
   expect(LEFT_BRACE, "Expect '{' before struct body.");
 
-  std::vector<std::pair<Token, GenType>> fields;
+  std::vector<TypedName> fields;
   std::vector<std::unique_ptr<FunDecl>> methods;
   auto namesp = std::make_unique<Namespace>(namespaces.back());
   namespaces.push_back(namesp.get());
   reserve_name<StructDecl *>(name);
 
-  std::unordered_set<std::string_view> field_names;
+  std::unordered_set<std::string_view> member_names;
   try {
     while (!check(RIGHT_BRACE) && !is_at_end()) {
       if (match(FUN)) {
         methods.emplace_back(function_declaration());
+        if (member_names.contains(methods.back()->name.str)) {
+          throw error_at(methods.back()->name, "Redefinition of member name");
+        }
+        member_names.insert(methods.back()->name.str);
       } else if (match(SEMICOLON)) {
         // skip
       } else {
         auto field_decl = ident_type();
-        if (field_names.contains(field_decl.first.str)) {
-          throw error_at(field_decl.first, "Redefinition of field name");
+        if (member_names.contains(field_decl.name.str)) {
+          throw error_at(field_decl.name, "Redefinition of member name");
         }
-        field_names.insert(field_decl.first.str);
+        member_names.insert(field_decl.name.str);
         fields.emplace_back(field_decl);
       }
     }
@@ -207,6 +211,10 @@ std::unique_ptr<StructDecl> Parser::struct_declaration() {
 
   namespaces.pop_back();
   add_name<StructDecl *>(name, res.get());
+  
+  for (auto &fun_ptr : res->methods) {
+    fun_ptr->method_of = res.get();
+  }
 
   expect(RIGHT_BRACE, "Expect '}' after struct body");
   return res;
@@ -216,26 +224,33 @@ std::unique_ptr<EnumDecl> Parser::enum_declaration() {
   Token name = expect(IDENTIFIER, "Expected enum name.");
   expect(LEFT_BRACE, "Expect '{' before enum body.");
 
-  std::vector<std::pair<Token, GenType>> variants;
+  std::vector<TypedName> variants;
   std::vector<std::unique_ptr<FunDecl>> methods;
   auto namesp = std::make_unique<Namespace>(namespaces.back());
   namespaces.push_back(namesp.get());
   reserve_name<EnumDecl *>(name);
 
-  std::unordered_set<std::string_view> variant_names;
+  std::unordered_set<std::string_view> member_names;
   try {
     while (!check(RIGHT_BRACE) && !is_at_end()) {
       if (match(FUN)) {
         methods.emplace_back(function_declaration());
+        if (member_names.contains(methods.back()->name.str)) {
+          throw error_at(methods.back()->name, "Redefinition of member name");
+        }
+        member_names.insert(methods.back()->name.str);
       } else if (match(SEMICOLON)) {
         // continue
       } else {
-        auto variant_decl = ident_type();
-        if (variant_names.contains(variant_decl.first.str)) {
-          throw error_at(variant_decl.first, "Redefinition of variant name");
+        TypedName variant{expect(IDENTIFIER, "Expected identifier."), GenType{"unit"}};
+        if (!check(SEMICOLON)) {
+          variant.gentype = type_name();
         }
-        variant_names.insert(variant_decl.first.str);
-        variants.emplace_back(variant_decl);
+        if (member_names.contains(variant.name.str)) {
+          throw error_at(variant.name, "Redefinition of member name");
+        }
+        member_names.insert(variant.name.str);
+        variants.emplace_back(variant);
       }
     }
   } catch (ParseError &err) {
@@ -249,6 +264,10 @@ std::unique_ptr<EnumDecl> Parser::enum_declaration() {
 
   namespaces.pop_back();
   add_name<EnumDecl *>(name, res.get());
+  
+  for (auto &fun_ptr : res->methods) {
+    fun_ptr->method_of = res.get();
+  }
 
   expect(RIGHT_BRACE, "Expect '}' after enum body.");
   return res;

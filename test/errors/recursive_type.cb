@@ -1,0 +1,18 @@
+struct T {
+  fun g() { }
+  u U;
+}
+
+struct U {
+  v V
+}
+
+enum E {
+  a i32
+  b i32
+  c
+}
+
+struct V {
+  t T
+}

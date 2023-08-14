@@ -46,7 +46,7 @@ class Parser {
   void synchronize();
 
   GenType type_name();
-  std::pair<Token, GenType> ident_type();
+  TypedName ident_type();
 
   Stmt toplevel_declaration();
   std::unique_ptr<StructDecl> struct_declaration();

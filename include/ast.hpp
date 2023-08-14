@@ -45,7 +45,7 @@ using DeclVariant = std::variant<
     std::unique_ptr<StructDecl>, std::unique_ptr<VarDecl>>;
 
 struct BuiltinType {
-  std::string name_str;
+  std::string name_str; // Token holds string_view, needs owning string
   Token name;
   BuiltinType(std::string name);
 };
@@ -76,7 +76,7 @@ struct Type {
     return std::holds_alternative<T>(type_decl_ptr);
   }
   template <typename T> T &as() { return std::get<T>(type_decl_ptr); }
-  std::string name();
+  std::string name() const;
 };
 
 struct Namespace {
@@ -207,13 +207,21 @@ struct Assign {
 struct Break {};
 struct Continue {};
 
+// enum variants, struct fields
+struct TypedName {
+  Token name;
+  GenType gentype;
+  TypeId type = -1;
+  inline TypedName(Token name, GenType gentype): name(std::move(name)), gentype(std::move(gentype)) {}
+};
+
 struct EnumDecl {
   Token name;
-  std::vector<std::pair<Token, GenType>> variants;
+  std::vector<TypedName> variants; // unit gentype for empty
   std::vector<std::unique_ptr<FunDecl>> methods;
   std::unique_ptr<Namespace> namesp;
   EnumDecl(
-      Token name, std::vector<std::pair<Token, GenType>> variants,
+      Token name, std::vector<TypedName> variants,
       std::vector<std::unique_ptr<FunDecl>> methods, std::unique_ptr<Namespace> namesp
   );
 };
@@ -223,6 +231,7 @@ struct FunDecl {
   std::vector<std::unique_ptr<VarDecl>> params;
   GenType return_type;
   std::unique_ptr<Block> body;
+  TypeDeclPtr method_of = static_cast<BuiltinType *>(nullptr);
   FunDecl(
       Token name, std::vector<std::unique_ptr<VarDecl>> params,
       GenType return_type, std::unique_ptr<Block> body
@@ -232,11 +241,11 @@ struct FunDecl {
 
 struct StructDecl {
   Token name;
-  std::vector<std::pair<Token, GenType>> fields;
+  std::vector<TypedName> fields;
   std::vector<std::unique_ptr<FunDecl>> methods;
   std::unique_ptr<Namespace> namesp;
   StructDecl(
-      Token name, std::vector<std::pair<Token, GenType>> fields,
+      Token name, std::vector<TypedName> fields,
       std::vector<std::unique_ptr<FunDecl>> methods, std::unique_ptr<Namespace> namesp
   );
 };
@@ -285,6 +294,7 @@ struct Stmt {
 struct AST {
   std::vector<Declaration> decls;
 
+  std::vector<FunDecl *> fun_ptrs;
   std::vector<Type> types;
   std::vector<std::unique_ptr<BuiltinType>> builtin_types;
 

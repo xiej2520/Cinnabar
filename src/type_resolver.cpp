@@ -189,22 +189,28 @@ void TypeResolver::resolve(Stmt &stmt) {
 void TypeResolver::resolve(Declaration &decl) {
   std::visit(overload{
     [&](std::unique_ptr<EnumDecl> &decl) {
-      for (auto &p : decl->variants) {
-        (void) p;
+      get_typeid(GenType{decl->name.str}); // remove later???
+
+      for (auto &variant : decl->variants) {
+        variant.type = get_typeid(variant.gentype);
       }
       for (auto &fun : decl->methods) {
         resolve(*fun);
+        ast.fun_ptrs.push_back(fun.get());
       }
     },
     [&](std::unique_ptr<FunDecl> &decl) {
       resolve(*decl);
+      ast.fun_ptrs.push_back(decl.get());
     },
     [&](std::unique_ptr<StructDecl> &decl) {
-      for (auto &p : decl->fields) {
-        (void) p;
+      get_typeid(GenType{decl->name.str}); // remove later???
+      for (auto &field : decl->fields) {
+        field.type = get_typeid(field.gentype);
       }
       for (auto &fun : decl->methods) {
         resolve(*fun);
+        ast.fun_ptrs.push_back(fun.get());
       }
     },
     [&](std::unique_ptr<VarDecl> &decl) {
@@ -254,9 +260,9 @@ void TypeResolver::resolve(Expr &expr) {
           return builtin_type_map["unit"]; // for now
         },
         [&](StructDecl *decl) {
-          for (auto &p : decl->fields) {
-            if (p.first.str == expr->name.str) {
-              return get_typeid(p.second);
+          for (auto &field : decl->fields) {
+            if (field.name.str == expr->name.str) {
+              return get_typeid(field.gentype);
             }
           }
           for (auto &fun_decl : decl->methods) {

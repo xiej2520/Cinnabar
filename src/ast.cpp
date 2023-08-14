@@ -4,7 +4,6 @@
 
 namespace cinnabar {
 
-using std::pair;
 using std::unique_ptr;
 using std::vector;
 
@@ -41,10 +40,10 @@ std::string GenType::to_string() const {
 Type::Type(TypeDeclPtr decl, TypeId id, GenType concrete_type): type_decl_ptr(decl), id(id), concrete_type(std::move(concrete_type)) {}
 
 // clang-format off
-std::string Type::name() {
+std::string Type::name() const {
   return std::visit(overload{
     [&](BuiltinType *decl) {
-      return decl->name_str;
+      return std::string(decl->name.str);
     },
     [&](EnumDecl *) {
       return concrete_type.to_string();
@@ -114,7 +113,7 @@ Declaration::Declaration(DeclVariant decl) : decl(std::move(decl)) {}
 
 // declaration statements
 EnumDecl::EnumDecl(
-    Token name, vector<pair<Token, GenType>> variants,
+    Token name, vector<TypedName> variants,
     vector<unique_ptr<FunDecl>> methods, unique_ptr<Namespace> namesp
 )
     : name(name), variants(variants), methods(std::move(methods)),
@@ -128,7 +127,7 @@ FunDecl::FunDecl(
       return_type(std::move(return_type)), body(std::move(body)) {}
 
 StructDecl::StructDecl(
-    Token name, vector<pair<Token, GenType>> fields,
+    Token name, vector<TypedName> fields,
     vector<unique_ptr<FunDecl>> methods, unique_ptr<Namespace> namesp
 )
     : name(name), fields(fields), methods(std::move(methods)), namesp(std::move(namesp)) {}
@@ -220,9 +219,9 @@ std::string Declaration::s_expr(int cur, int ind) {
       if (!decl->namesp->names.empty()) {
         res += decl->namesp->to_string(cur + ind);
       }
-      for (auto &p : decl->variants) {
+      for (auto &variant : decl->variants) {
         res += fmt::format("{:{}}{} {}\n", "", cur + ind,
-            p.first.str, p.second.name);
+            variant.name.str, variant.gentype.to_string());
       }
       for (auto &fun : decl->methods) {
         res += fmt::format("{:{}}({})\n", "", cur + ind,
@@ -236,9 +235,9 @@ std::string Declaration::s_expr(int cur, int ind) {
                                     "{}\n",
           "", cur, decl->name.str);
       res += decl->namesp->to_string(cur + ind);
-      for (auto &p : decl->fields) {
+      for (auto &field : decl->fields) {
         res += fmt::format(
-            "{:{}}{} {}\n", "", cur + ind, p.first.str, p.second.name);
+            "{:{}}{} {}\n", "", cur + ind, field.name.str, field.gentype.to_string());
       }
       for (auto &fun : decl->methods) {
         res += fun->s_expr(cur + ind, ind);
