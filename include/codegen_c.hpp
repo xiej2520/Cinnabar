@@ -6,9 +6,20 @@
 
 namespace cinnabar {
   
+struct CEnumInfo {
+  std::vector<std::string> variant_names;
+};
+struct CStructInfo {
+
+};
 struct CTypeInfo {
   std::string mangled_name;
-  inline CTypeInfo(std::string_view mangled_name): mangled_name(mangled_name) {}
+  std::variant<CEnumInfo, CStructInfo> data;
+
+  CEnumInfo &enum_data();
+  CStructInfo &struct_data();
+
+  CTypeInfo(std::string mangled_name);
 };
 
 class CodegenC {

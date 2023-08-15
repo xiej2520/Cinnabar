@@ -1,8 +1,19 @@
 #include "codegen_c.hpp"
 
 #include <functional>
+#include <ranges>
 
 namespace cinnabar {
+  
+CTypeInfo::CTypeInfo(std::string mangled_name): mangled_name(std::move(mangled_name)) {
+}
+
+CEnumInfo &CTypeInfo::enum_data() {
+  return std::get<CEnumInfo>(data);
+}
+CStructInfo &CTypeInfo::struct_data() {
+  return std::get<CStructInfo>(data);
+}
 
 CodegenC::CodegenC(const AST &ast) : ast(ast) {}
 
@@ -57,7 +68,7 @@ void CodegenC::emit_types() {
   }
 
   std::vector<int> dependencies(num_types, 0);
-  std::vector<std::vector<int>> types_depending_on(num_types); // adj list
+  std::vector<std::vector<int>> depends_on(num_types); // adj list
 
   // create dependency list and mangled type names
   for (int i = 0; i < num_types; i++) {
@@ -67,16 +78,20 @@ void CodegenC::emit_types() {
       [&](BuiltinType *) { },
       [&](EnumDecl *decl) {
         std::unordered_set<int> depend;
-        for (auto &variant : decl->variants) {
-          depend.insert(variant.type);
-        }
-        for (int type_id : depend) {
-          types_depending_on[type_id].push_back(i);
-        }
-        dependencies[i] = depend.size();
 
         CTypeInfo ctype(mangle_name(decl->name.str));
+
+        for (auto &variant : decl->variants) {
+          std::get<CEnumInfo>(ctype.data).variant_names.push_back(
+              mangle_name(fmt::format("__{}_enum_var_{}", ctype.mangled_name, variant.name.str)));
+          depend.insert(variant.type);
+        }
         ctypes.push_back(ctype);
+
+        for (int type_id : depend) {
+          depends_on[i].push_back(type_id);
+        }
+        dependencies[i] = depend.size();
         emit_type_forward_declare(i);
       },
       [&](StructDecl *decl) {
@@ -85,7 +100,7 @@ void CodegenC::emit_types() {
           depend.insert(field.type);
         }
         for (int type_id : depend) {
-          types_depending_on[type_id].push_back(i);
+          depends_on[i].push_back(type_id);
         }
 
         CTypeInfo ctype(mangle_name(decl->name.str));
@@ -103,6 +118,7 @@ void CodegenC::emit_types() {
     CURRENT_VISIT,
   };
   std::vector<Status> visit(ast.types.size(), Status::UNVISITED);
+  std::vector<int> current_search;
 
   std::function<void(TypeId)> dfs;
   dfs = [&](TypeId id) {
@@ -111,29 +127,27 @@ void CodegenC::emit_types() {
     }
     if (visit[id] == Status::CURRENT_VISIT) { // loop detected
       std::string err_msg("Mutually recursive types: ");
-      err_msg += ast.types[id].name(); // current
-
-      size_t tn = type_order.size();
-      for (size_t i = 0; i < tn && type_order[tn - 1 - i] != id; i++) {
-        err_msg += " <- ";
-        err_msg += ast.types[type_order[type_order.size() - 1 - i]].name();
+      for (TypeId i : current_search) {
+        err_msg += ast.types[i].name();
+        err_msg += " -> ";
       }
-      err_msg += fmt::format(" <- {}", ast.types[id].name());
+      err_msg += ast.types[id].name();
       error(err_msg);
     }
+    current_search.push_back(id);
 
     visit[id] = Status::CURRENT_VISIT;
-    type_order.push_back(id);
-    for (TypeId depend : types_depending_on[id]) {
+    for (TypeId depend : depends_on[id]) {
       dfs(depend);
     }
+    current_search.clear();
+    type_order.push_back(id);
     visit[id] = Status::DONE;
   };
 
   for (size_t i = 0; i < ast.types.size(); i++) {
     dfs(i);
   }
-  reverse(type_order.begin(), type_order.end());
   
   for (TypeId i : type_order) {
     std::visit(overload{
@@ -164,10 +178,10 @@ void CodegenC::emit_enum_definition(TypeId i) {
   emit_line("struct {} {{", ctypes[i].mangled_name);
   // emit enum of variant
   emit_line("  enum {{");
-  for (const auto &variant : decl.variants) {
-    emit_line("    __{}__enum_var__{},", ctypes[i].mangled_name, variant.name.str);
+  for (size_t j = 0; j < decl.variants.size(); j++) {
+    emit_line("    {},", ctypes[i].enum_data().variant_names[j]);
   }
-  emit_line("  }}");
+  emit_line("  }} {}__enum;", ctypes[i].mangled_name);
   // emit union of variant
   emit_line("  union {{");
   for (const auto &variant : decl.variants) {
@@ -178,8 +192,8 @@ void CodegenC::emit_enum_definition(TypeId i) {
       emit_line("    {} {};", ctypes[variant.type].mangled_name, variant.name.str);
     }
   }
-  emit_line("  }}");
-  emit_line("}}", ctypes[i].mangled_name);
+  emit_line("  }} {}__union;", ctypes[i].mangled_name);
+  emit_line("}};");
 }
 
 void CodegenC::emit_struct_definition(TypeId i) {
@@ -188,7 +202,7 @@ void CodegenC::emit_struct_definition(TypeId i) {
   for (const auto &field : decl.fields) {
     emit_line("  {} {};", ctypes[field.type].mangled_name, field.name.str);
   }
-  emit_line("}}", ctypes[i].mangled_name);
+  emit_line("}};");
 }
 
 std::string CodegenC::generate() {
