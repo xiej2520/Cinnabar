@@ -22,11 +22,17 @@ struct CTypeInfo {
   CTypeInfo(std::string mangled_name);
 };
 
+struct CFunInfo {
+  std::string mangled_name;
+};
+
 class CodegenC {
 
   const AST &ast;
 
   std::vector<CTypeInfo> ctypes;
+  std::vector<CFunInfo> cfuns;
+
   std::unordered_map<std::string_view, int> type_map;
   
   std::unordered_set<std::string> used_names; // easier to have owning
@@ -41,10 +47,13 @@ class CodegenC {
   void emit_line(fmt::format_string<Args...> fmt, Args&&... args);
   void emit_include(std::string_view file_name);
   void emit_types();
-  void emit_type_forward_declare(TypeId i);
+  void emit_type_forward_declare(TypeId id);
+  void emit_function_foward_declare(FunId id);
   // check type before calling
-  void emit_enum_definition(TypeId i);
-  void emit_struct_definition(TypeId i);
+  void emit_enum_definition(TypeId id);
+  void emit_struct_definition(TypeId id);
+  
+  void emit_function_definition(FunId id);
 
   [[noreturn]] void error(std::string_view message);
 

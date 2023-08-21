@@ -54,3 +54,8 @@ for backend?
   * Slice of assignee expression
   * Tuple structs, structs of assignee expression
   * Unit struct
+
+## Generics
+
+* Only support type generics for now! Too much effort for const generics/monomorphizing
+code with const generics might be horrible.

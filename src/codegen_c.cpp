@@ -72,7 +72,7 @@ void CodegenC::emit_types() {
 
   // create dependency list and mangled type names
   for (int i = 0; i < num_types; i++) {
-    const Type &type = ast.types[i];
+    const TypeInst &type = ast.types[i];
     // clang-format off
     std::visit(overload{
       [&](BuiltinType *) { },
@@ -107,7 +107,7 @@ void CodegenC::emit_types() {
         ctypes.push_back(ctype);
         emit_type_forward_declare(i);
       },
-    }, type.type_decl_ptr);
+    }, type.decl);
     // clang-format on
   }
 
@@ -154,34 +154,57 @@ void CodegenC::emit_types() {
       [](BuiltinType *) {},
       [&](EnumDecl *) { emit_enum_definition(i); },
       [&](StructDecl *) { emit_struct_definition(i); },
-    }, ast.types[i].type_decl_ptr);
+    }, ast.types[i].decl);
   }
 }
 
-void CodegenC::emit_type_forward_declare(TypeId i) {
-  std::visit(
-      overload{
-          [&](BuiltinType *) {}, // skip
-          [&](EnumDecl *) {
-            emit_line("typedef struct {0} {0};", ctypes[i].mangled_name);
-          },
-          [&](StructDecl *) {
-            emit_line("typedef struct {0} {0};", ctypes[i].mangled_name);
-          },
-      },
-      ast.types[i].type_decl_ptr
-  );
+void CodegenC::emit_type_forward_declare(TypeId id) {
+  // clang-format off
+  std::visit(overload{
+    [&](BuiltinType *) {}, // skip
+    [&](EnumDecl *) {
+      emit_line("typedef struct {0} {0};", ctypes[id].mangled_name);
+    },
+    [&](StructDecl *) {
+      emit_line("typedef struct {0} {0};", ctypes[id].mangled_name);
+    },
+  }, ast.types[id].decl);
+  // clang-format on
 }
 
-void CodegenC::emit_enum_definition(TypeId i) {
-  const EnumDecl &decl = *std::get<EnumDecl *>(ast.types[i].type_decl_ptr);
-  emit_line("struct {} {{", ctypes[i].mangled_name);
+void CodegenC::emit_function_foward_declare(FunId id) {
+  std::string declaration;
+  const FunInst &fun = ast.functions[id];
+  if (fun.return_type == ast.builtin_type_map.at("unit")) {
+    declaration += "void";
+  }
+  else {
+    declaration += ast.types[fun.return_type].name();
+  }
+  declaration += ' ';
+  declaration += cfuns[id].mangled_name;
+  declaration += '(';
+  if (fun.param_types.size() != 0) {
+    for (size_t i = 0; i < fun.param_types.size(); i++) {
+      declaration += fmt::format("{} {}, ",
+          ast.types[fun.param_types[i]].name(), fun.decl->params[i]->name.str);
+    }
+    declaration.resize(declaration.size() - 2);
+  }
+  declaration += ");";
+
+  emit_line("{}", declaration);
+}
+
+void CodegenC::emit_enum_definition(TypeId id) {
+  const EnumDecl &decl = *std::get<EnumDecl *>(ast.types[id].decl);
+  emit_line("struct {} {{", ctypes[id].mangled_name);
   // emit enum of variant
   emit_line("  enum {{");
   for (size_t j = 0; j < decl.variants.size(); j++) {
-    emit_line("    {},", ctypes[i].enum_data().variant_names[j]);
+    emit_line("    {},", ctypes[id].enum_data().variant_names[j]);
   }
-  emit_line("  }} {}__enum;", ctypes[i].mangled_name);
+  emit_line("  }} {}__enum;", ctypes[id].mangled_name);
   // emit union of variant
   emit_line("  union {{");
   for (const auto &variant : decl.variants) {
@@ -192,17 +215,21 @@ void CodegenC::emit_enum_definition(TypeId i) {
       emit_line("    {} {};", ctypes[variant.type].mangled_name, variant.name.str);
     }
   }
-  emit_line("  }} {}__union;", ctypes[i].mangled_name);
+  emit_line("  }} {}__union;", ctypes[id].mangled_name);
   emit_line("}};");
 }
 
-void CodegenC::emit_struct_definition(TypeId i) {
-  const StructDecl &decl = *std::get<StructDecl *>(ast.types[i].type_decl_ptr);
-  emit_line("struct {} {{", ctypes[i].mangled_name);
+void CodegenC::emit_struct_definition(TypeId id) {
+  const StructDecl &decl = *std::get<StructDecl *>(ast.types[id].decl);
+  emit_line("struct {} {{", ctypes[id].mangled_name);
   for (const auto &field : decl.fields) {
     emit_line("  {} {};", ctypes[field.type].mangled_name, field.name.str);
   }
   emit_line("}};");
+}
+
+void CodegenC::emit_function_definition(FunId id) {
+  (void) id;
 }
 
 std::string CodegenC::generate() {

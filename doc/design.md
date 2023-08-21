@@ -15,6 +15,8 @@ Stages
     * `struct X { struct Y }` would have `X` and `X.Y` visible at toplevel.
     * Process all type definitions at each "level" (nested struct but not block),
     then dfs?
+  * Don't generate structs, enums, functions until needed: read definition, which
+  can be generic, instantiate concrete version when used.
 * Backend
 
 C Backend

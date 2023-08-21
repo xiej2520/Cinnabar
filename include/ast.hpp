@@ -55,34 +55,29 @@ using DeclPtr =
 using TypeDeclPtr = std::variant<BuiltinType *, EnumDecl *, StructDecl *>;
 
 using TypeId = int;
+using FunId = int;
 
-struct GenType {
-  std::string name;
-  std::vector<GenType> params;
+// Array[T, N]
+struct GenericDef {
+  std::string base_name;
+  std::vector<std::string> params;
+};
 
-  GenType(std::string_view name);
-  GenType(std::string_view name, std::vector<GenType> params);
+// Array[Array[i32, 4], 8]
+struct GenericInst {
+  std::string base_name;
+  std::vector<GenericInst> args;
+  GenericInst(std::string_view base_name);
+  GenericInst(std::string_view base_name, std::vector<GenericInst> args);
   std::string to_string() const;
 };
 
-struct Type {
-  TypeDeclPtr type_decl_ptr;
-  TypeId id;
-  GenType concrete_type;
-  
-  Type(TypeDeclPtr decl, TypeId id, GenType concrete_type);
-
-  template <typename T> bool is() {
-    return std::holds_alternative<T>(type_decl_ptr);
-  }
-  template <typename T> T &as() { return std::get<T>(type_decl_ptr); }
-  std::string name() const;
-};
-
 struct Namespace {
-  std::unordered_map<std::string_view, DeclPtr> names;
-  // concrete types don't always have tokens, own the strings
+  std::unordered_map<std::string_view, DeclPtr> names; // base name -> decl
+
+  // concrete types/funcs don't always have tokens, own the strings
   std::unordered_map<std::string, TypeId> concrete_types;
+  std::unordered_map<std::string, FunId> concrete_funs;
   
   Namespace *parent;
 
@@ -156,6 +151,7 @@ struct DotRef {
 struct FunCall {
   TypeId type = -1;
   Expr callee;
+  FunId fun = -1;
   std::vector<Expr> args;
   FunCall(Expr callee, std::vector<Expr> args);
 };
@@ -194,6 +190,7 @@ struct Unary {
   Expr operand;
   Unary(UnaryOp op, Expr operand);
 };
+
 //
 // statements
 //
@@ -210,9 +207,9 @@ struct Continue {};
 // enum variants, struct fields
 struct TypedName {
   Token name;
-  GenType gentype;
+  GenericInst gentype;
   TypeId type = -1;
-  inline TypedName(Token name, GenType gentype): name(std::move(name)), gentype(std::move(gentype)) {}
+  inline TypedName(Token name, GenericInst gentype): name(std::move(name)), gentype(std::move(gentype)) {}
 };
 
 struct EnumDecl {
@@ -229,12 +226,12 @@ struct EnumDecl {
 struct FunDecl {
   Token name;
   std::vector<std::unique_ptr<VarDecl>> params;
-  GenType return_type;
+  GenericInst return_type;
   std::unique_ptr<Block> body;
   TypeDeclPtr method_of = static_cast<BuiltinType *>(nullptr);
   FunDecl(
       Token name, std::vector<std::unique_ptr<VarDecl>> params,
-      GenType return_type, std::unique_ptr<Block> body
+      GenericInst return_type, std::unique_ptr<Block> body
   );
   std::string s_expr(int cur, int ind);
 };
@@ -253,10 +250,10 @@ struct StructDecl {
 struct VarDecl {
   Token name;
   TypeId type = -1;
-  std::optional<GenType> type_specifier;
+  std::optional<GenericInst> type_specifier;
   std::optional<Expr> initializer;
   VarDecl(
-      Token name, std::optional<GenType> type_specifier,
+      Token name, std::optional<GenericInst> type_specifier,
       std::optional<Expr> initializer
   );
 };
@@ -291,12 +288,36 @@ struct Stmt {
   std::string s_expr(int cur, int ind);
 };
 
+struct FunInst {
+  FunDecl *decl;
+  GenericInst concrete_fun;
+  std::vector<TypeId> param_types;
+  TypeId return_type = -1;
+  
+  FunInst(FunDecl *decl, GenericInst concrete_fun);
+  std::string name() const;
+};
+
+struct TypeInst {
+  TypeDeclPtr decl;
+  GenericInst concrete_type;
+  
+  TypeInst(TypeDeclPtr decl, GenericInst concrete_type);
+
+  template <typename T> bool is() {
+    return std::holds_alternative<T>(decl);
+  }
+  template <typename T> T &as() { return std::get<T>(decl); }
+  std::string name() const;
+};
+
 struct AST {
   std::vector<Declaration> decls;
 
-  std::vector<FunDecl *> fun_ptrs;
-  std::vector<Type> types;
+  std::vector<FunInst> functions;
+  std::vector<TypeInst> types;
   std::vector<std::unique_ptr<BuiltinType>> builtin_types;
+  std::unordered_map<std::string_view, TypeId> builtin_type_map;
 
   std::unique_ptr<Namespace> globals;
 

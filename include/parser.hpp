@@ -17,7 +17,6 @@ class Parser {
 
   int current = 0;
   std::vector<Namespace *> namespaces;
-  std::vector<Type> types;
 
   // reserves name with nullptr
   template<typename T>
@@ -45,7 +44,7 @@ class Parser {
   ParseError error_cur(std::string_view message);
   void synchronize();
 
-  GenType type_name();
+  GenericInst type_name();
   TypedName ident_type();
 
   Stmt toplevel_declaration();

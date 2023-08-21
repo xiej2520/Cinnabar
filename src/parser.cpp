@@ -130,20 +130,20 @@ void Parser::synchronize() {
   }
 }
 
-GenType Parser::type_name() {
+GenericInst Parser::type_name() {
   Token name = expect(IDENTIFIER, "Expected type name.");
-  std::vector<GenType> params;
+  std::vector<GenericInst> params;
   if (match(LEFT_BRACKET)) {
     do {
       params.push_back(type_name());
     } while (match(COMMA));
     expect(RIGHT_BRACKET, "Expect ']' after type arguments.");
   }
-  return GenType{std::string(name.str), params};
+  return GenericInst{std::string(name.str), params};
 }
 
 TypedName Parser::ident_type() {
-  TypedName res(Token(), GenType{""});
+  TypedName res(Token(), GenericInst{""});
   res.name = expect(IDENTIFIER, "Expected identifier.");
   res.gentype = type_name();
   return res;
@@ -242,7 +242,7 @@ std::unique_ptr<EnumDecl> Parser::enum_declaration() {
       } else if (match(SEMICOLON)) {
         // continue
       } else {
-        TypedName variant{expect(IDENTIFIER, "Expected identifier."), GenType{"unit"}};
+        TypedName variant{expect(IDENTIFIER, "Expected identifier."), GenericInst{"unit"}};
         if (!check(SEMICOLON)) {
           variant.gentype = type_name();
         }
@@ -283,7 +283,7 @@ std::unique_ptr<FunDecl> Parser::function_declaration() {
   reserve_name<FunDecl *>(name);
 
   std::vector<std::unique_ptr<VarDecl>> parameters;
-  GenType return_type("unit");
+  GenericInst return_type("unit");
   std::unique_ptr<Block> body(nullptr);
 
   try {
@@ -325,7 +325,7 @@ std::unique_ptr<FunDecl> Parser::function_declaration() {
 
 std::unique_ptr<VarDecl> Parser::variable_declaration() {
   Token name = expect(IDENTIFIER, "Expected identifier.");
-  std::optional<GenType> type;
+  std::optional<GenericInst> type;
   std::optional<Expr> initializer = std::nullopt;
   if (!check(EQUAL)) {
     type = type_name();
@@ -619,12 +619,10 @@ AST Parser::parse() {
   std::vector<std::unique_ptr<BuiltinType>> builtin_types;
 
   for (auto name : default_builtin_types) {
-    /*
-    if (globals.names.contains(name)) {
-      fmt::print(stderr, "Globals contained name '{}' matching builtin.\n",
-    name); abort();
-    }
-    */
+    //if (globals.names.contains(name)) {
+    //  fmt::print(stderr, "Globals contained name '{}' matching builtin.\n",
+    //name); abort();
+    //}
     builtin_types.emplace_back(std::make_unique<BuiltinType>(name));
     add_name<BuiltinType *>(builtin_types.back()->name, builtin_types.back().get());
   }
