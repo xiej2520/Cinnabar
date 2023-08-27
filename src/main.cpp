@@ -36,12 +36,13 @@ int main(int argc, char **argv) {
 
   cinnabar::Parser parser(src);
   cinnabar::AST ast = parser.parse();
-  
-  cinnabar::TypeResolver resolver(ast);
-  resolver.resolve();
 
   fmt::print(stderr, "{}\n\n--------\n\n", ast.to_string());
   
-  std::string res = cinnabar::generate(ast, cinnabar::CodegenOutput::C);
+  cinnabar::TypeResolver resolver(ast);
+  cinnabar::TAST tast = resolver.resolve();
+
+  
+  std::string res = cinnabar::generate(tast, cinnabar::CodegenOutput::C);
   fmt::print("{}", res);
 }

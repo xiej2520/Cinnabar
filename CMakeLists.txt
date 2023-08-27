@@ -29,6 +29,7 @@ endif()
 # see commands in build/compile_commands.json
 
 # comes after add_compile_options
+#set(CMAKE_CXX_CLANG_TIDY "clang-tidy-16;-header-filter=.*")
 add_executable(cinnabar ${SOURCES})
 
 include(FetchContent)
@@ -39,9 +40,6 @@ FetchContent_Declare(fmt
 FetchContent_MakeAvailable(fmt)
 
 target_link_libraries(cinnabar PRIVATE fmt::fmt)
-
-set(CMAKE_CXX_CLANG_TIDY
-    "clang-tidy;-header-filter=.*")
 
 # Debug build
 # cmake -S . -B build/ -D CMAKE_BUILD_TYPE=Debug

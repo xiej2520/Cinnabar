@@ -4,12 +4,11 @@
 
 #include <span>
 #include <string>
-#include <unordered_map>
 #include <vector>
 
 namespace cinnabar {
 
-enum class Lexeme : u8 {
+enum class Lexeme : uint8_t {
   // single character
   LEFT_PAREN,            // (
   RIGHT_PAREN,           // )

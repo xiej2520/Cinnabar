@@ -2,6 +2,8 @@
 
 #include "fmt/core.h"
 
+#include <unordered_map>
+
 namespace cinnabar {
 
 using enum Lexeme;
@@ -186,7 +188,7 @@ void Lexer::scan_token() {
         advance();
     }
     else if (match_advance('*')) { // nested comments /* /* */ */
-      u32 stack = 1;
+      size_t stack = 1;
       while (!is_at_end() && stack > 0) {
         if (match_advance('/') && match_advance('*')) stack++;
         else if (match_advance('*') && match_advance('/')) stack--;

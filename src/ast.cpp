@@ -21,10 +21,13 @@ std::vector<std::string> default_builtin_types = {
 BuiltinType::BuiltinType(std::string name)
     : name_str(name), name(name_str, IDENTIFIER, 0, 0) {}
 
-GenericInst::GenericInst(std::string_view base_name)
-    : base_name(base_name) {}
+bool GenericName::is_concrete() const {
+  return params.empty();
+}
+
+GenericInst::GenericInst(std::string_view base_name) : base_name(base_name) {}
 GenericInst::GenericInst(std::string_view base_name, vector<GenericInst> args)
-    : base_name(base_name), args(std::move(args)) {};
+    : base_name(base_name), args(std::move(args)){};
 
 std::string GenericInst::to_string() const {
   auto res = base_name;
@@ -36,6 +39,10 @@ std::string GenericInst::to_string() const {
     res.back() = ']';
   }
   return res;
+}
+
+bool GenericInst::is_concrete() const {
+  return args.empty();
 }
 
 Namespace::Namespace(Namespace *parent) : parent(parent) {}
@@ -97,24 +104,24 @@ Declaration::Declaration(DeclVariant decl) : decl(std::move(decl)) {}
 
 // declaration statements
 EnumDecl::EnumDecl(
-    Token name, vector<TypedName> variants, vector<unique_ptr<FunDecl>> methods,
+    Token name, GenericName name_param, vector<TypedName> variants, vector<unique_ptr<FunDecl>> methods,
     unique_ptr<Namespace> namesp
 )
-    : name(name), variants(variants), methods(std::move(methods)),
+    : name(name), name_param(std::move(name_param)), variants(variants), methods(std::move(methods)),
       namesp(std::move(namesp)) {}
 
 FunDecl::FunDecl(
-    Token name, vector<unique_ptr<VarDecl>> params, GenericInst return_type,
+    Token name, GenericName name_param, vector<unique_ptr<VarDecl>> params, GenericInst return_type,
     unique_ptr<Block> body
 )
-    : name(name), params(std::move(params)),
+    : name(name), name_param(std::move(name_param)), params(std::move(params)),
       return_type(std::move(return_type)), body(std::move(body)) {}
 
 StructDecl::StructDecl(
-    Token name, vector<TypedName> fields, vector<unique_ptr<FunDecl>> methods,
+    Token name, GenericName name_param, vector<TypedName> fields, vector<unique_ptr<FunDecl>> methods,
     unique_ptr<Namespace> namesp
 )
-    : name(name), fields(fields), methods(std::move(methods)),
+    : name(name), name_param(std::move(name_param)), fields(fields), methods(std::move(methods)),
       namesp(std::move(namesp)) {}
 
 VarDecl::VarDecl(
@@ -152,22 +159,6 @@ Variable::Variable(Token name) : name(name) {}
 Unary::Unary(UnaryOp op, Expr operand) : op(op), operand(std::move(operand)) {}
 
 Expr::Expr(ExprVariant node) : node(std::move(node)) {}
-
-TypeId Expr::type() {
-  return std::visit(
-      overload{
-          [&](unique_ptr<Binary> &expr) { return expr->type; },
-          [&](unique_ptr<Block> &expr) { return expr->type; },
-          [&](unique_ptr<DotRef> &expr) { return expr->type; },
-          [&](unique_ptr<FunCall> &expr) { return expr->type; },
-          [&](unique_ptr<If> &expr) { return expr->type; },
-          [&](unique_ptr<Literal> &expr) { return expr->type; },
-          [&](unique_ptr<Unary> &expr) { return expr->type; },
-          [&](unique_ptr<Variable> &expr) { return expr->type; },
-      },
-      node
-  );
-}
 
 std::string FunDecl::s_expr(int cur, int ind) {
   std::string res = fmt::format("{:{}}(Fun[{}]\n", "", cur, name.str);
@@ -266,10 +257,10 @@ std::string Stmt::s_expr(int cur, int ind) {
 
 std::string to_string(LiteralVariant v) {
   return std::visit(overload{
-    [](i32 l) { return fmt::format("{}", l); },
-    [](i64 l) { return fmt::format("{}", l); },
-    [](f32 l) { return fmt::format("{}", l); },
-    [](f64 l) { return fmt::format("{}", l); },
+    [](int32_t l) { return fmt::format("{}", l); },
+    [](int64_t l) { return fmt::format("{}", l); },
+    [](float l) { return fmt::format("{}", l); },
+    [](double l) { return fmt::format("{}", l); },
     [](bool l) { return fmt::format("{}", l); },
     [](char l) { return fmt::format("{}", l); },
     [](std::string l) { return l; }},
@@ -323,33 +314,6 @@ std::string Expr::s_expr(int cur, int ind) {
   node);
 }
 // clang-format on
-
-FunInst::FunInst(FunDecl *decl, GenericInst concrete_fun)
-    : decl(decl), concrete_fun(std::move(concrete_fun)) {}
-
-std::string FunInst::name() const {
-  return concrete_fun.to_string();
-}
-
-TypeInst::TypeInst(TypeDeclPtr decl, GenericInst concrete_type)
-    : decl(decl), concrete_type(std::move(concrete_type)) {}
-
-// clang-format off
-std::string TypeInst::name() const {
-  return std::visit(overload{
-    [&](BuiltinType *decl) {
-      return std::string(decl->name.str);
-    },
-    [&](EnumDecl *) {
-      return concrete_type.to_string();
-    },
-    [&](StructDecl *) {
-      return concrete_type.to_string();
-    },
-  }, decl);
-}
-// clang-format on
-
 
 AST::AST(
     vector<Declaration> decls, vector<unique_ptr<BuiltinType>> builtin_types,

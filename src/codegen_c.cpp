@@ -15,7 +15,7 @@ CStructInfo &CTypeInfo::struct_data() {
   return std::get<CStructInfo>(data);
 }
 
-CodegenC::CodegenC(const AST &ast) : ast(ast) {}
+CodegenC::CodegenC(const TAST &tast) : tast(tast) {}
 
 std::string CodegenC::mangle_name(std::string_view name) {
   std::string res;
@@ -50,7 +50,7 @@ void CodegenC::emit_include(std::string_view file_name) {
 }
 
 void CodegenC::emit_types() {
-  int num_types = ast.types.size();
+  int num_types = tast.types.size();
   ctypes.reserve(num_types);
 
   std::vector<std::pair<const char *, const char *>> builtin_type_map = {
@@ -72,8 +72,9 @@ void CodegenC::emit_types() {
 
   // create dependency list and mangled type names
   for (int i = 0; i < num_types; i++) {
-    const TypeInst &type = ast.types[i];
+    //const TTypeInst &type = tast.types[i];
     // clang-format off
+    /*
     std::visit(overload{
       [&](BuiltinType *) { },
       [&](EnumDecl *decl) {
@@ -84,7 +85,7 @@ void CodegenC::emit_types() {
         for (auto &variant : decl->variants) {
           std::get<CEnumInfo>(ctype.data).variant_names.push_back(
               mangle_name(fmt::format("__{}_enum_var_{}", ctype.mangled_name, variant.name.str)));
-          depend.insert(variant.type);
+          depend.insert(variant.);
         }
         ctypes.push_back(ctype);
 
@@ -108,16 +109,18 @@ void CodegenC::emit_types() {
         emit_type_forward_declare(i);
       },
     }, type.decl);
+    */
     // clang-format on
   }
 
+  /*
   std::vector<TypeId> type_order;
   enum class Status {
     DONE,
     UNVISITED,
     CURRENT_VISIT,
   };
-  std::vector<Status> visit(ast.types.size(), Status::UNVISITED);
+  std::vector<Status> visit(tast.types.size(), Status::UNVISITED);
   std::vector<int> current_search;
 
   std::function<void(TypeId)> dfs;
@@ -156,10 +159,13 @@ void CodegenC::emit_types() {
       [&](StructDecl *) { emit_struct_definition(i); },
     }, ast.types[i].decl);
   }
+  */
 }
 
 void CodegenC::emit_type_forward_declare(TypeId id) {
   // clang-format off
+  (void) id;
+  /*
   std::visit(overload{
     [&](BuiltinType *) {}, // skip
     [&](EnumDecl *) {
@@ -169,11 +175,15 @@ void CodegenC::emit_type_forward_declare(TypeId id) {
       emit_line("typedef struct {0} {0};", ctypes[id].mangled_name);
     },
   }, ast.types[id].decl);
+  */
   // clang-format on
 }
 
 void CodegenC::emit_function_foward_declare(FunId id) {
   std::string declaration;
+  (void) declaration;
+  (void) id;
+  /*
   const FunInst &fun = ast.functions[id];
   if (fun.return_type == ast.builtin_type_map.at("unit")) {
     declaration += "void";
@@ -194,9 +204,12 @@ void CodegenC::emit_function_foward_declare(FunId id) {
   declaration += ");";
 
   emit_line("{}", declaration);
+  */
 }
 
 void CodegenC::emit_enum_definition(TypeId id) {
+  (void) id;
+  /*
   const EnumDecl &decl = *std::get<EnumDecl *>(ast.types[id].decl);
   emit_line("struct {} {{", ctypes[id].mangled_name);
   // emit enum of variant
@@ -217,15 +230,19 @@ void CodegenC::emit_enum_definition(TypeId id) {
   }
   emit_line("  }} {}__union;", ctypes[id].mangled_name);
   emit_line("}};");
+  */
 }
 
 void CodegenC::emit_struct_definition(TypeId id) {
+  (void) id;
+  /*
   const StructDecl &decl = *std::get<StructDecl *>(ast.types[id].decl);
   emit_line("struct {} {{", ctypes[id].mangled_name);
   for (const auto &field : decl.fields) {
     emit_line("  {} {};", ctypes[field.type].mangled_name, field.name.str);
   }
   emit_line("}};");
+  */
 }
 
 void CodegenC::emit_function_definition(FunId id) {

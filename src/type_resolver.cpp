@@ -1,55 +1,51 @@
 #include "type_resolver.hpp"
 
+#include <functional>
 #include <ranges>
 
 #include "fmt/core.h"
 
 namespace cinnabar {
 
-TypeResolver::TypeResolver(AST &ast) : ast(ast) {
-  namespaces.push_back(ast.globals.get());
-  for (auto &name : default_builtin_types) {
-    ast.builtin_type_map[name] = get_typeid(GenericInst{name});
-  }
-  namespaces.pop_back();
-  std::vector<std::string_view> numeric_type_names = {
-      "i8",  "i16", "i32", "i64", "u8",   "u16",
-      "u32", "u64", "f32", "f64", "char",
-  };
-  for (auto s : numeric_type_names) {
-    builtin_numeric_types.insert(ast.builtin_type_map[s]);
-  }
+TypeResolver::PushNamespace
+TypeResolver::push_namespace(Namespace *namesp, TNamespace *tnamesp) {
+  return PushNamespace(*this, namesp, tnamesp);
 }
+
+TypeResolver::TypeResolver(AST &ast) : ast(ast) {}
 
 TypeId TypeResolver::get_typeid(const GenericInst &gentype) {
   std::string_view base_type = gentype.base_name;
-  for (int i = namespaces.size() - 1; i >= 0; i--) {
-    Namespace &namesp = *namespaces[i];
-    if (namesp.names.contains(base_type)) {
-      DeclPtr decl = namesp.names[base_type];
+
+  auto namesp = cur_ast_namesp;
+  auto tnamesp = cur_tnamesp;
+  for (; namesp != nullptr;
+       namesp = namesp->parent, tnamesp = tnamesp->parent) {
+    if (namesp->names.contains(base_type)) {
+      DeclPtr decl = namesp->names[base_type];
       auto gentype_str = gentype.to_string();
       // clang-format off
       return std::visit(overload{
         [&](BuiltinType *decl) {
-          if (!namesp.concrete_types.contains(gentype_str)) {
-            return namesp.concrete_types[gentype_str] = add_type(gentype, decl);
+          if (!tnamesp->concrete_types.contains(gentype_str)) {
+            return tnamesp->concrete_types[gentype_str] = add_type(gentype, decl, tnamesp);
           }
-          return namesp.concrete_types[gentype_str];
+          return tnamesp->concrete_types[gentype_str];
         },
         [&](EnumDecl *decl) {
-          if (!namesp.concrete_types.contains(gentype_str)) {
-            return namesp.concrete_types[gentype_str] = add_type(gentype, decl);
+          if (!tnamesp->concrete_types.contains(gentype_str)) {
+            return tnamesp->concrete_types[gentype_str] = add_type(gentype, decl, tnamesp);
           }
-          return namesp.concrete_types[gentype_str];
+          return tnamesp->concrete_types[gentype_str];
         },
-        [&](FunDecl *) { error(fmt::format("Name {} is a function, not a type.", base_type)); return -1; },
+        [&](FunDecl *) { error(fmt::format("Name {} is a function, not a type.", base_type)); return TypeId{-1}; },
         [&](StructDecl *decl) {
-          if (!namesp.concrete_types.contains(gentype_str)) {
-            return namesp.concrete_types[gentype_str] = add_type(gentype, decl);
+          if (!tnamesp->concrete_types.contains(gentype_str)) {
+            return tnamesp->concrete_types[gentype_str] = add_type(gentype, decl, tnamesp);
           }
-          return namesp.concrete_types[gentype_str];
+          return tnamesp->concrete_types[gentype_str];
         },
-        [&](VarDecl *) { error(fmt::format("Name {} is a variable, not a type.", base_type)); return -1; },
+        [&](VarDecl *) { error(fmt::format("Name {} is a variable, not a type.", base_type)); return TypeId{-1}; },
       }, decl);
       // clang-format on
     }
@@ -57,70 +53,206 @@ TypeId TypeResolver::get_typeid(const GenericInst &gentype) {
   error(fmt::format("Base type {} not found.", base_type));
 }
 
-const TypeInst &TypeResolver::get_type(TypeId id) {
-  if (id < 0 || static_cast<size_t>(id) >= ast.types.size()) {
-    error(fmt::format("TypeId {} out of bounds", id));
+const TTypeInst &TypeResolver::get_type(TypeId id) {
+  if (id < 0 || static_cast<size_t>(id) >= types.size()) {
+    error(fmt::format("TypeId {} out of bounds", id.value));
   }
-  return ast.types.at(id);
+  return types.at(id);
 }
 
-
-FunId TypeResolver::get_fun(const GenericInst &gentype) {
+FunId TypeResolver::get_funid(const GenericInst &gentype) {
   std::string_view base_fun = gentype.base_name;
-  for (Namespace *namesp : namespaces | std::views::reverse) {
+
+  auto namesp = cur_ast_namesp;
+  auto tnamesp = cur_tnamesp;
+  for (; namesp != nullptr;
+       namesp = namesp->parent, tnamesp = tnamesp->parent) {
     if (namesp->names.contains(base_fun)) {
       DeclPtr decl = namesp->names[base_fun];
       if (!std::holds_alternative<FunDecl *>(decl)) {
         error(fmt::format("Name {} is not a function.", base_fun));
       }
       auto gentype_str = gentype.to_string();
-      if (!namesp->concrete_funs.contains(gentype_str)) {
-        return namesp->concrete_funs[gentype_str] = add_fun(gentype, std::get<FunDecl *>(decl));
+      if (!tnamesp->concrete_funs.contains(gentype_str)) {
+        return tnamesp->concrete_funs[gentype_str] =
+                   add_fun(gentype, std::get<FunDecl *>(decl), tnamesp);
       }
-      return namesp->concrete_types[gentype_str];
+      return tnamesp->concrete_funs[gentype_str];
     }
   }
   error(fmt::format("Function {} not found.", base_fun));
 }
 
-VarDecl *TypeResolver::get_var(std::string_view name) {
-  for (int i = namespaces.size() - 1; i >= 0; i--) {
-    Namespace &namesp = *namespaces[i];
-    if (namesp.names.contains(name)) {
-      DeclPtr decl = namesp.names[name];
-      if (!std::holds_alternative<VarDecl *>(decl)) {
-        error(fmt::format("Name {} is not a variable.", name));
-      }
-      return std::get<VarDecl *>(decl);
+const TFunInst &TypeResolver::get_fun(FunId id) {
+  if (id < 0 || static_cast<size_t>(id) >= functions.size()) {
+    error(fmt::format("FunId {} out of bounds", id.value));
+  }
+  return functions.at(id);
+}
+
+TVarInst *TypeResolver::get_var(std::string_view name) {
+  auto tnamesp = cur_tnamesp;
+  for (; tnamesp != nullptr; tnamesp = tnamesp->parent) {
+    if (tnamesp->variables.contains(name)) {
+      return tnamesp->variables[name];
     }
   }
   error(fmt::format("Variable {} not found.", name));
 }
 
-DeclPtr TypeResolver::get_decl(std::string_view name) {
-  for (Namespace *namesp : namespaces | std::views::reverse) {
-    if (namesp->names.contains(name)) {
-      return namesp->names[name];
+DeclaredName TypeResolver::get_decl(const GenericInst &geninst) {
+  std::string_view base_name = geninst.base_name;
+
+  auto namesp = cur_ast_namesp;
+  auto tnamesp = cur_tnamesp;
+  
+  std::string geninst_str = geninst.to_string();
+  for (; namesp != nullptr; namesp = namesp->parent, tnamesp = tnamesp->parent) {
+    if (namesp->names.contains(base_name)) {
+      DeclPtr decl = namesp->names[base_name];
+      return std::visit(overload{
+        [&](BuiltinType *decl) -> DeclaredName {
+          if (!tnamesp->concrete_types.contains(geninst_str)) {
+            return tnamesp->concrete_types[geninst_str] = add_type(geninst, decl, tnamesp);
+          }
+          return tnamesp->concrete_types[geninst_str];
+        },
+        [&](EnumDecl *decl) -> DeclaredName {
+          if (!tnamesp->concrete_types.contains(geninst_str)) {
+            return tnamesp->concrete_types[geninst_str] = add_type(geninst, decl, tnamesp);
+          }
+          return tnamesp->concrete_types[geninst_str];
+        },
+        [&](FunDecl *) -> DeclaredName {
+          if (!tnamesp->concrete_funs.contains(geninst_str)) {
+            return tnamesp->concrete_funs[geninst_str] = add_fun(geninst, std::get<FunDecl *>(decl), tnamesp);
+          }
+          return tnamesp->concrete_funs[geninst_str];
+        },
+        [&](StructDecl *decl) -> DeclaredName {
+          if (!tnamesp->concrete_types.contains(geninst_str)) {
+            return tnamesp->concrete_types[geninst_str] = add_type(geninst, decl, tnamesp);
+          }
+          return tnamesp->concrete_types[geninst_str];
+        },
+        [&](VarDecl *) -> DeclaredName {
+          if (!geninst.is_concrete()) {
+            error("Internal error: Tried to search for variable with type parameter?");
+          }
+          else if (!tnamesp->variables.contains(base_name)) {
+            error("Internal error: variable declared in namespace but not typed namesace?");
+          }
+          return tnamesp->variables[base_name];
+        },
+      }, decl);
     }
   }
-  error(fmt::format("Name {} not found.", name));
+  error(fmt::format("Base name {} not found.", base_name));
 }
 
-TypeId TypeResolver::add_type(const GenericInst &type, TypeDeclPtr decl) {
-  TypeId res = ast.types.size();
-  ast.types.push_back(TypeInst{decl, type});
+TypeId TypeResolver::add_type(
+    const GenericInst &type, TypeDeclPtr decl, TNamespace *parent_tnamesp
+) {
+  auto type_name = type.to_string();
+  if (currently_creating.contains(type_name)) {
+    error(fmt::format(
+        "Cycle detected while instantiating types at {}.", type_name
+    ));
+  }
+  currently_creating.insert(type_name);
+
+  TypeId res = types.size();
+  // clang-format off
+  std::visit(overload{
+    [&](BuiltinType *decl) {
+      parent_tnamesp->concrete_types[type_name] = res;
+      types.push_back(TTypeInst{*decl});
+    },
+    [&](EnumDecl *decl) {
+      types.push_back(TTypeInst{TEnumInst{type, {}, std::make_unique<TNamespace>(parent_tnamesp), {}, {}}});
+      auto &enum_inst = types.back().as<TEnumInst>();
+      auto p = push_namespace(decl->namesp.get(), enum_inst.namesp.get());
+
+      parent_tnamesp->concrete_types[type_name] = res;
+      enum_inst.namesp->concrete_types[type_name] = res;
+
+      for (size_t i = 0; i < type.args.size(); i++) {
+        TypeId genparam_id = get_typeid(type.args[i]);
+        enum_inst.generic_args.push_back(genparam_id);
+        enum_inst.namesp->concrete_types[decl->name_param.params[i]] = genparam_id;
+      }
+      
+      for (size_t i = 0; i < decl->variants.size(); i++) {
+        auto &[name, gentype] = decl->variants[i];
+        enum_inst.variants[name.str] = {get_typeid(gentype), i};
+      }
+      
+      // add methods? later
+
+    },
+    [&](StructDecl *decl) {
+      types.push_back(TTypeInst{TStructInst{type, {}, std::make_unique<TNamespace>(parent_tnamesp), {}, {}}});
+      auto &struct_inst = types.back().as<TStructInst>();
+      auto p = push_namespace(decl->namesp.get(), struct_inst.namesp.get());
+
+      parent_tnamesp->concrete_types[type_name] = res;
+      struct_inst.namesp->concrete_types[type_name] = res;
+
+      for (size_t i = 0; i < type.args.size(); i++) {
+        TypeId genparam_id = get_typeid(type.args[i]);
+        struct_inst.generic_args.push_back(genparam_id);
+        struct_inst.namesp->concrete_types[decl->name_param.params[i]] = genparam_id;
+      }
+      
+      for (size_t i = 0; i < decl->fields.size(); i++) {
+        auto &[name, gentype] = decl->fields[i];
+        struct_inst.fields[name.str] = {get_typeid(gentype), i};
+      }
+      
+      // add methods? later
+    },
+  }, decl);
+  // clang-format on
+  currently_creating.erase(type_name);
+  parent_tnamesp->concrete_types[type_name] = res;
   return res;
 }
 
-FunId TypeResolver::add_fun(const GenericInst &fun, FunDecl *decl) {
-  FunId res = ast.functions.size();
-  ast.functions.push_back(FunInst{decl, fun});
+FunId TypeResolver::add_fun(
+    const GenericInst &fun, FunDecl *decl, TNamespace *parent_tnamesp
+) {
+  FunId res = functions.size();
+
+  functions.push_back(TFunInst{fun, {}, {}, -1, nullptr});
+  auto &fun_inst = functions.back();
+
+  auto block_namesp = std::make_unique<TNamespace>(parent_tnamesp);
+  parent_tnamesp->concrete_funs[fun.to_string()] = res;
+  block_namesp->concrete_funs[fun.to_string()] = res;
+
+  for (size_t i = 0; i < fun.args.size(); i++) {
+    TypeId genparam_id = get_typeid(fun.args[i]);
+    fun_inst.generic_args.push_back(genparam_id);
+    block_namesp->concrete_types[decl->name_param.params[i]] = genparam_id;
+  }
+
+  auto p = push_namespace(decl->body->namesp.get(), block_namesp.get());
+
+  for (size_t i = 0; i < decl->params.size(); i++) {
+    fun_inst.params.push_back(resolve(*decl->params[i]));
+  }
+  
+  fun_inst.return_type = get_typeid(decl->return_type);
+  
+  fun_inst.body = resolve(*decl->body, std::move(block_namesp));
+
   return res;
 }
 
 TypeId
 TypeResolver::find_binary_op(BinaryOp op, TypeId lhs_type, TypeId rhs_type) {
-  if (builtin_numeric_types.contains(lhs_type) && builtin_numeric_types.contains(rhs_type)) {
+  if (builtin_numeric_types.contains(lhs_type) &&
+      builtin_numeric_types.contains(rhs_type)) {
     if (lhs_type != rhs_type) {
       error(lhs_type, rhs_type);
     }
@@ -141,32 +273,37 @@ TypeResolver::find_binary_op(BinaryOp op, TypeId lhs_type, TypeId rhs_type) {
     case BinaryOp::GT:
     case BinaryOp::GTE:
     case BinaryOp::LTE:
-      return ast.builtin_type_map["bool"];
+      return builtin_type_map["bool"];
     default:;
     }
   }
   error(fmt::format(
-      "Invalid binary operation: {} {} {}\n", to_string(op), lhs_type, rhs_type
+      "Invalid binary operation: {} {} {}\n", to_string(op), lhs_type.value, rhs_type.value
   ));
 }
 
 // clang-format off
-void TypeResolver::resolve(Stmt &stmt) {
-  std::visit(overload {
-    [&](std::monostate){},
-    [&](std::unique_ptr<Assign> &stmt) {
+std::optional<TStmt> TypeResolver::resolve(Stmt &stmt) {
+  return std::visit(overload{
+    [&](std::monostate) -> std::optional<TStmt>  { return std::nullopt; },
+    [&](std::unique_ptr<Assign> &stmt) -> std::optional<TStmt>  {
+      auto res = std::make_unique<TAssign>();
+      res->op = stmt->op;
+      res->lhs = resolve(stmt->lhs);
+      res->rhs = resolve(stmt->rhs);
+
       // check for assignable
-      if (stmt->lhs.is<std::unique_ptr<Variable>>()) {
+      if (res->lhs.is<std::unique_ptr<TVariable>>()) {
         // assign to variable
       }
-      else if (stmt->lhs.is<std::unique_ptr<DotRef>>()) {
+      else if (res->lhs.is<std::unique_ptr<TDotRef>>()) {
         // field
       }
-      else if (stmt->lhs.is<std::unique_ptr<FunCall>>()) {
+      else if (res->lhs.is<std::unique_ptr<TFunCall>>()) {
         // only deref builtin for now
-        FunCall &fun_call = *stmt->lhs.as<std::unique_ptr<FunCall>>();
-        if (fun_call.callee.is<std::unique_ptr<Variable>>()) {
-          Variable &fun = *fun_call.callee.as<std::unique_ptr<Variable>>();
+        TFunCall &fun_call = *res->lhs.as<std::unique_ptr<TFunCall>>();
+        if (fun_call.callee.is<std::unique_ptr<TVariable>>()) {
+          TVariable &fun = *fun_call.callee.as<std::unique_ptr<TVariable>>();
           if (fun.name.str != "__deref") {
             error("Left side of assignment is a call to function, but not __deref.");
           }
@@ -176,231 +313,304 @@ void TypeResolver::resolve(Stmt &stmt) {
         error("Left side of assignment is not an assignee expression.");
       }
 
-      resolve(stmt->lhs);
-      resolve(stmt->rhs);
-      if (stmt->lhs.type() != stmt->rhs.type()) {
-        error(fmt::format("Left side {} has type {}, does not match right {} side type {}.",
-            stmt->lhs.s_expr(0, 2), stmt->lhs.type(), stmt->rhs.s_expr(0, 2), stmt->rhs.type()));
+      if (res->lhs.type() != res->rhs.type()) {
+        error(fmt::format("Left side {} has type {}, does not match right side {} type {}.",
+            stmt->lhs.s_expr(0, 2), res->lhs.type().value, stmt->rhs.s_expr(0, 2), res->rhs.type().value));
       }
+      return TStmt{std::move(res)};
     },
-    [&](std::unique_ptr<Break> &) {},
-    [&](std::unique_ptr<Continue> &) {},
-    [&](Declaration &stmt) {
-      resolve(stmt);
+    [&](std::unique_ptr<Break> &) -> std::optional<TStmt>  { return TStmt{std::make_unique<TBreak>()}; },
+    [&](std::unique_ptr<Continue> &) -> std::optional<TStmt>  { return TStmt{std::make_unique<TContinue>()}; },
+    [&](Declaration &stmt) -> std::optional<TStmt> {
+      auto res = resolve(stmt);
+      if (res.has_value()) {
+        return TStmt{std::move(res.value())};
+      }
+      return std::nullopt;
     },
-    [&](std::unique_ptr<Expression> &stmt) {
-      resolve(stmt->expr);
+    [&](std::unique_ptr<Expression> &stmt) -> std::optional<TStmt>  {
+      return TStmt{TExpression{resolve(stmt->expr)}};
     },
-    [&](std::unique_ptr<For> &) {},
-    [&](std::unique_ptr<Return> &) {},
-    [&](std::unique_ptr<While> &) {},
+    [&](std::unique_ptr<For> &) -> std::optional<TStmt>  { return std::nullopt; },
+    [&](std::unique_ptr<Return> &) -> std::optional<TStmt>  { return std::nullopt; },
+    [&](std::unique_ptr<While> &) -> std::optional<TStmt>  { return std::nullopt; },
   }, stmt.node);
 }
 
-void TypeResolver::resolve(Declaration &decl) {
-  std::visit(overload{
-    [&](std::unique_ptr<EnumDecl> &decl) {
-      get_typeid(GenericInst{decl->name.str}); // remove later???
-
-      for (auto &variant : decl->variants) {
-        variant.type = get_typeid(variant.gentype);
+std::optional<std::unique_ptr<TVarInst>> TypeResolver::resolve(Declaration &decl) {
+  return std::visit(overload{
+    [&](std::unique_ptr<EnumDecl> &decl) -> std::optional<std::unique_ptr<TVarInst>> {
+      if (decl->name_param.is_concrete()) {
+        get_typeid(GenericInst{decl->name_param.base_name});
       }
-      for (auto &fun : decl->methods) {
-        resolve(*fun);
-      }
+      return std::nullopt;
     },
-    [&](std::unique_ptr<FunDecl> &decl) {
-      resolve(*decl);
+    [&](std::unique_ptr<FunDecl> &decl) -> std::optional<std::unique_ptr<TVarInst>> {
+      if (decl->name_param.is_concrete()) {
+        get_funid(GenericInst{decl->name_param.base_name});
+      }
+      return std::nullopt;
     },
-    [&](std::unique_ptr<StructDecl> &decl) {
-      get_typeid(GenericInst{decl->name.str}); // remove later???
-      for (auto &field : decl->fields) {
-        field.type = get_typeid(field.gentype);
+    [&](std::unique_ptr<StructDecl> &decl) -> std::optional<std::unique_ptr<TVarInst>> {
+      if (decl->name_param.is_concrete()) {
+        get_typeid(GenericInst{decl->name_param.base_name});
       }
-      for (auto &fun : decl->methods) {
-        resolve(*fun);
-      }
+      return std::nullopt;
     },
-    [&](std::unique_ptr<VarDecl> &decl) {
-      if (decl->type_specifier.has_value()) {
-        decl->type = get_typeid(decl->type_specifier.value());
-        if (!decl->initializer.has_value()) {
-          resolve(decl->initializer.value());
-          if (decl->initializer.value().type() != decl->type) {
-            error(fmt::format("Variable {} has declared type {}, does not match initializer type {}",
-                decl->name.str, decl->type, decl->initializer.value().type()));
-          }
-        }
-      }
-      else if (decl->initializer.has_value()) {
-        resolve(decl->initializer.value());
-        decl->type = decl->initializer.value().type();
-      }
-      else {
-        error(fmt::format("Variable {} does not have a declared type or initializer"
-            " (currently do not support type inference).", decl->name.str));
-      }
+    [&](std::unique_ptr<VarDecl> &decl) -> std::optional<std::unique_ptr<TVarInst>> {
+      return resolve(*decl);
     },
   }, decl.decl);
 }
 
-void TypeResolver::resolve(FunDecl &fun) {
-  resolve(*fun.body);
+std::unique_ptr<TVarInst> TypeResolver::resolve(VarDecl &decl) {
+  auto res = std::make_unique_for_overwrite<TVarInst>();
+  res->name = decl.name;
+
+  if (decl.initializer.has_value()) {
+    res->initializer = resolve(decl.initializer.value());
+    res->type = res->initializer->type();
+  }
+  else {
+    res->initializer = std::nullopt;
+    res->type = -1;
+  }
+  if (decl.type_specifier.has_value()) {
+    auto specifier_type = get_typeid(decl.type_specifier.value());
+    if (res->initializer.has_value() && res->type != specifier_type) {
+        error(fmt::format("Variable {} has declared type {}, does not match initializer type {}",
+            res->name.str, specifier_type.value, res->type.value));
+    }
+  }
+  if (res->type == -1) {
+    error(fmt::format("Variable {} does not have a declared type or initializer"
+        " (currently do not support type inference).", res->name.str));
+  }
+  
+  cur_tnamesp->variables[res->name.str] = res.get();
+  return res;
 }
 
-void TypeResolver::resolve(Expr &expr) {
-  std::visit(overload {
+TExpr TypeResolver::resolve(Expr &expr) {
+  return std::visit(overload{
     [&](std::unique_ptr<Binary> &expr) {
-      resolve(expr->left);
-      resolve(expr->right);
+      auto res = std::make_unique_for_overwrite<TBinary>();
+      res->op = expr->op;
+      res->left = resolve(expr->left);
+      res->right = resolve(expr->right);
       
-      expr->type = find_binary_op(expr->op, expr->left.type(), expr->right.type());
+      res->type = find_binary_op(expr->op, res->left.type(), res->right.type());
+      return TExpr{std::move(res)};
     },
-    [&](std::unique_ptr<Block> &expr) { resolve(*expr); },
+    [&](std::unique_ptr<Block> &expr) { return TExpr{resolve(*expr)}; },
     [&](std::unique_ptr<DotRef> &expr) {
-      resolve(expr->lvalue);
-      const TypeInst &t = get_type(expr->lvalue.type());
-      expr->type = std::visit(overload{
-        [&](BuiltinType *) {
-          return ast.builtin_type_map["unit"]; // for now
+      auto res = std::make_unique_for_overwrite<TDotRef>();
+      res->left = resolve(expr->lvalue);
+      res->name = expr->name;
+
+      const TTypeInst &t = get_type(res->left.type());
+      res->type = std::visit(overload{
+        [&](const BuiltinType &bt) {
+          return builtin_type_map[bt.name.str];
         },
-        [&](EnumDecl *) {
-          return ast.builtin_type_map["unit"]; // for now
+        [&](const TEnumInst &) {
+          return builtin_type_map["unit"]; // for now
         },
-        [&](StructDecl *decl) {
-          for (auto &field : decl->fields) {
-            if (field.name.str == expr->name.str) {
-              return get_typeid(field.gentype);
-            }
+        [&](const TStructInst &inst) {
+          if (auto it = inst.fields.find(res->name.str); it != inst.fields.end()) {
+            return it->second.first;
           }
-          for (auto &fun_decl : decl->methods) {
-            if (fun_decl->name.str == expr->name.str) {
-              expr->fun_decl = fun_decl.get();
-              return ast.builtin_type_map["__fun"];
-            }
+          else if (auto it = inst.methods.find(res->name.str); it != inst.methods.end()) {
+            return builtin_type_map["__fun"];
           }
           error(fmt::format("Name {} in dot ref not found.", expr->name.str));
         }
-      }, t.decl);
+      }, t.def);
+      
+      return TExpr{std::move(res)};
     },
     [&](std::unique_ptr<FunCall> &expr) {
-      resolve(expr->callee);
-      if (expr->callee.type() != ast.builtin_type_map["__fun"]) {
+      auto res = std::make_unique<TFunCall>();
+      res->callee = resolve(expr->callee);
+
+      if (res->callee.type() != builtin_type_map["__fun"]) {
         error("Type of callee was not a function.");
       }
 
-      FunDecl *fun_decl = nullptr;
       // functions and struct constructors callable
-      if (expr->callee.is<std::unique_ptr<Variable>>()) {
-        Variable &var = *expr->callee.as<std::unique_ptr<Variable>>();
+      // find the function being called
+      if (res->callee.is<std::unique_ptr<TVariable>>()) {
+        TVariable &var = *res->callee.as<std::unique_ptr<TVariable>>();
         std::visit(overload{
-          [&](BuiltinType *) { error("Builtin type not callable."); },
-          [&](EnumDecl *) { error("Enum type not callable."); },
-          [&](FunDecl *decl) {
-            if (decl == nullptr) error("Internal error, declaration not found.");
-            expr->type = get_typeid(decl->return_type);
-            fun_decl = decl;
+          //[&](BuiltinType *) { error("Builtin type not callable."); },
+          //[&](EnumDecl *) { error("Enum type not callable."); },
+          [&](FunId id) {
+            if (id < 0) error("Internal error, declaration not found.");
+            res->type = get_fun(id).return_type;
+            res->fun = id;
           },
-          [&](StructDecl *) {
-            error("Struct not callable");
-          },
-          [&](VarDecl *) { error("Variable not callable."); },
+          [&](TypeId) { error("Type not callable."); },
+          //[&](StructDecl *) { error("Struct not callable"); },
+          [&](TVarInst *) { error("Variable not callable."); },
         }, var.decl);
       }
-      // dotref to function callable
-      else if (expr->callee.is<std::unique_ptr<DotRef>>()) {
-        DotRef &dot = *expr->callee.as<std::unique_ptr<DotRef>>();
-        if (dot.fun_decl == nullptr) {
+      // dotref to function callable (method)
+      else if (res->callee.is<std::unique_ptr<TDotRef>>()) {
+        TDotRef &dot = *res->callee.as<std::unique_ptr<TDotRef>>();
+        if (dot.fun == -1) {
           error("Field is not callable");
         }
-        fun_decl = dot.fun_decl;
-        expr->type = get_typeid(dot.fun_decl->return_type);
+        res->fun = dot.fun;
+        res->type = get_fun(res->fun).return_type;
       }
       else {
         error("Callee is not callable.");
       }
       
       // check arity
-      if (fun_decl->params.size() != expr->args.size()) {
+      auto &fun_inst = get_fun(res->fun);
+      if (fun_inst.params.size() != expr->args.size()) {
         error("Function declaration has different arity than function call.");
       }
       // check function type match
-      for (size_t i=0; i<expr->args.size(); i++) {
-        resolve(expr->args[i]);
-        if (expr->args[i].type() != fun_decl->params[i]->type) {
-          error(fun_decl->params[i]->type, expr->args[i].type());
+      for (size_t i=0; i<res->args.size(); i++) {
+        res->args.push_back(resolve(expr->args[i]));
+
+        if (res->args[i].type() != fun_inst.params[i]->type) {
+          error(fun_inst.params[i]->type, res->args[i].type());
         }
       }
+
+      return TExpr{std::move(res)};
     },
     [&](std::unique_ptr<If> &expr) {
+      auto res = std::make_unique<TIf>();
+
       for (auto &branch : expr->branches) {
-        resolve(branch->condition);
-        if (branch->condition.type() != ast.builtin_type_map["bool"]) {
-          error(ast.builtin_type_map["bool"], branch->condition.type());
+        res->branches.push_back(std::make_unique<TIf::TBranch>());
+        auto &tbranch = *res->branches.back();
+
+        tbranch.condition = resolve(branch->condition);
+        if (tbranch.condition.type() != builtin_type_map["bool"]) {
+          error(builtin_type_map["bool"], tbranch.condition.type());
         }
-        resolve(*branch->block);
+        tbranch.block = resolve(*branch->block);
       }
-      expr->type = expr->branches[0]->block->type;
-      for (size_t i=1; i<expr->branches.size(); i++) {
-        if (expr->type != expr->branches[i]->block->type) {
-          expr->type = ast.builtin_type_map["unit"];
+
+      res->type = res->branches.front()->block->type;
+      for (size_t i = 1; i < res->branches.size(); i++) {
+        if (res->type != res->branches[i]->block->type) {
+          res->type = builtin_type_map["unit"];
           break;
         }
       }
+
+      return TExpr{std::move(res)};
     },
     [&](std::unique_ptr<Literal> &expr) {
-      expr->type = std::visit(overload{
-        [&](i32) { return ast.builtin_type_map["i32"]; },
-        [&](i64) { return ast.builtin_type_map["i64"]; },
-        [&](f32) { return ast.builtin_type_map["f32"]; },
-        [&](f64) { return ast.builtin_type_map["f64"]; },
-        [&](bool) { return ast.builtin_type_map["bool"]; },
-        [&](char) { return ast.builtin_type_map["char"]; },
-        [&](std::string) { return ast.builtin_type_map["Slice[char]"]; },
-      }, expr->val);
+      auto res = std::make_unique_for_overwrite<TLiteral>();
+
+      res->val = expr->val;
+
+      res->type = std::visit(overload{
+        [&](int32_t) { return builtin_type_map["i32"]; },
+        [&](int64_t) { return builtin_type_map["i64"]; },
+        [&](float)   { return builtin_type_map["f32"]; },
+        [&](double)  { return builtin_type_map["f64"]; },
+        [&](bool)    { return builtin_type_map["bool"]; },
+        [&](char)    { return builtin_type_map["char"]; },
+        [&](std::string) { return builtin_type_map["Span[char]"]; },
+      }, res->val);
+      
+      return TExpr{std::move(res)};
     },
-    [&](std::unique_ptr<Unary> &) {},
+    [&](std::unique_ptr<Unary> &) { return TExpr{std::make_unique<TLiteral>(builtin_type_map["i32"], 0)}; },
     [&](std::unique_ptr<Variable> &expr) {
       // "variable" is identifier, can be var, fun, struct, enum
-      DeclPtr decl = get_decl(expr->name.str);
-      if (FunDecl **fun_decl = std::get_if<FunDecl *>(&decl)) {
-        expr->type = get_typeid(GenericInst{"__fun"});
-        expr->decl = *fun_decl;
+      auto res = std::make_unique_for_overwrite<TVariable>();
+
+      res->decl = get_decl(expr->name.str);
+      if (FunId *id = std::get_if<FunId>(&res->decl)) {
+        res->type = builtin_type_map["__fun"];
       }
-      else if (VarDecl **var_decl = std::get_if<VarDecl *>(&decl)) {
-        expr->type = (*var_decl)->type;
-        expr->decl = *var_decl;
+      else if (TVarInst **var_inst = std::get_if<TVarInst *>(&res->decl)) {
+        res->type = (*var_inst)->type;
       }
       else {
         error(fmt::format("Could not find variable named {}", expr->name.str));
       }
+      
+      return TExpr{std::move(res)};
     },
   }, expr.node);
+  // clang-format on
 }
 
-void TypeResolver::resolve(Block &block) {
-  namespaces.push_back(block.namesp.get());
+std::unique_ptr<TBlock> TypeResolver::resolve(Block &block, std::unique_ptr<TNamespace> tnamesp) {
+  auto res = std::make_unique<TBlock>();
+  auto p = push_namespace(block.namesp.get(), tnamesp.get());
   
   for (Stmt &stmt : block.stmts) {
-    resolve(stmt);
+    auto tstmt = resolve(stmt);
+    if (tstmt.has_value()) {
+      res->stmts.push_back(std::move(tstmt.value()));
+    }
   }
-
-  namespaces.pop_back();
   
-  if (!block.stmts.empty() && block.stmts.back().is<std::unique_ptr<Expression>>()) {
-    block.type = block.stmts.back().as<std::unique_ptr<Expression>>()->expr.type();
+  if (!res->stmts.empty() && res->stmts.back().is<TExpression>()) {
+    res->type = res->stmts.back().as<TExpression>().expr.type();
   }
   else {
-    block.type = get_typeid(GenericInst{"unit"});
+    res->type = builtin_type_map["unit"];
   }
+  return res;
 }
-// clang-format on
 
-void TypeResolver::resolve() {
-  namespaces.push_back(ast.globals.get());
-  for (Declaration &decl : ast.decls) {
-    resolve(decl);
+std::unique_ptr<TBlock> TypeResolver::resolve(Block &block) {
+  auto tnamesp = std::make_unique<TNamespace>(cur_tnamesp);
+  return resolve(block, std::move(tnamesp));
+}
+
+TAST TypeResolver::resolve() {
+  builtin_numeric_types.clear();
+  functions.clear();
+  types.clear();
+  builtin_types.clear();
+  builtin_type_map.clear();
+
+  cur_ast_namesp = ast.globals.get();
+  auto root_namesp = std::make_unique<TNamespace>(nullptr);
+  cur_tnamesp = root_namesp.get();
+
+  TAST tast;
+
+  std::vector<std::unique_ptr<TVarInst>> globals;
+
+  for (auto &name : default_builtin_types) {
+    builtin_type_map[name] = get_typeid(GenericInst{name});
   }
+
+  std::vector<std::string_view> numeric_type_names = {
+      "i8",  "i16", "i32", "i64", "u8",   "u16",
+      "u32", "u64", "f32", "f64", "char",
+  };
+  for (auto s : numeric_type_names) {
+    builtin_numeric_types.insert(builtin_type_map[s]);
+  }
+
+  for (Declaration &decl : ast.decls) {
+    auto res = resolve(decl);
+    if (res.has_value()) {
+      globals.push_back(std::move(res.value()));
+    }
+  }
+
+  tast.functions = std::move(functions);
+  tast.types = std::move(types);
+  tast.globals = std::move(globals);
+  tast.root_namesp = std::move(root_namesp);
+
+  return tast;
 }
 
 [[noreturn]] void TypeResolver::error(std::string_view message) {
@@ -409,8 +619,10 @@ void TypeResolver::resolve() {
 }
 
 [[noreturn]] void TypeResolver::error(TypeId expected, TypeId found) {
-  error(fmt::format("Expected type {}, found type {}.", ast.types[expected].name(),
-      ast.types[found].name()));
+  error(fmt::format(
+      "Expected type {}, found type {}.", types[expected].name(),
+      types[found].name()
+  ));
 }
 
 } // namespace cinnabar

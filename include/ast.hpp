@@ -1,11 +1,14 @@
 #pragma once
+
+#include "ast.hpp"
+
 #include "ast_ops.hpp"
 #include "common.hpp"
 #include "lexer.hpp"
 
 #include <memory>
 #include <optional>
-#include <unordered_set>
+#include <unordered_map>
 #include <variant>
 #include <vector>
 
@@ -54,30 +57,27 @@ using DeclPtr =
     std::variant<BuiltinType *, EnumDecl *, FunDecl *, StructDecl *, VarDecl *>;
 using TypeDeclPtr = std::variant<BuiltinType *, EnumDecl *, StructDecl *>;
 
-using TypeId = int;
-using FunId = int;
-
 // Array[T, N]
-struct GenericDef {
+struct GenericName {
   std::string base_name;
   std::vector<std::string> params;
+  bool is_concrete() const;
 };
 
 // Array[Array[i32, 4], 8]
 struct GenericInst {
   std::string base_name;
   std::vector<GenericInst> args;
+
   GenericInst(std::string_view base_name);
   GenericInst(std::string_view base_name, std::vector<GenericInst> args);
+
   std::string to_string() const;
+  bool is_concrete() const;
 };
 
 struct Namespace {
   std::unordered_map<std::string_view, DeclPtr> names; // base name -> decl
-
-  // concrete types/funcs don't always have tokens, own the strings
-  std::unordered_map<std::string, TypeId> concrete_types;
-  std::unordered_map<std::string, FunId> concrete_funs;
   
   Namespace *parent;
 
@@ -116,15 +116,12 @@ struct Expr {
   ExprVariant node;
   Expr(ExprVariant node);
 
-  TypeId type();
-
   template <typename T> bool is() { return std::holds_alternative<T>(node); }
   template <typename T> T &as() { return std::get<T>(node); }
   std::string s_expr(int cur, int ind); // current indent, indent
 };
 
 struct Binary {
-  TypeId type = -1;
   BinaryOp op;
   Expr left;
   Expr right;
@@ -132,7 +129,6 @@ struct Binary {
 };
 
 struct Block {
-  TypeId type = -1;
   std::vector<Stmt> stmts;
   std::unique_ptr<Namespace> namesp;
   Block(std::vector<Stmt> stmts, std::unique_ptr<Namespace> namesp);
@@ -140,7 +136,6 @@ struct Block {
 };
 
 struct DotRef {
-  TypeId type = -1;
   Expr lvalue;
   // var.f()
   FunDecl *fun_decl = nullptr; // change to Variable?
@@ -149,15 +144,12 @@ struct DotRef {
 };
 
 struct FunCall {
-  TypeId type = -1;
   Expr callee;
-  FunId fun = -1;
   std::vector<Expr> args;
   FunCall(Expr callee, std::vector<Expr> args);
 };
 
 struct If {
-  TypeId type = -1;
   struct Branch {
     // else branch will be a Literal true condition as the last block
     Expr condition;
@@ -169,23 +161,19 @@ struct If {
 };
 
 using LiteralVariant =
-    std::variant<i32, i64, f32, f64, bool, char, std::string>;
+    std::variant<int32_t, int64_t, float, double, bool, char, std::string>;
 
 struct Literal {
-  TypeId type = -1;
   LiteralVariant val;
   Literal(LiteralVariant val);
 };
 
 struct Variable {
-  TypeId type = -1;
   Token name;
-  DeclPtr decl = static_cast<BuiltinType *>(nullptr);
   Variable(Token name);
 };
 
 struct Unary {
-  TypeId type = -1;
   UnaryOp op;
   Expr operand;
   Unary(UnaryOp op, Expr operand);
@@ -208,29 +196,30 @@ struct Continue {};
 struct TypedName {
   Token name;
   GenericInst gentype;
-  TypeId type = -1;
   inline TypedName(Token name, GenericInst gentype): name(std::move(name)), gentype(std::move(gentype)) {}
 };
 
 struct EnumDecl {
   Token name;
+  GenericName name_param;
   std::vector<TypedName> variants; // unit gentype for empty
   std::vector<std::unique_ptr<FunDecl>> methods;
   std::unique_ptr<Namespace> namesp;
   EnumDecl(
-      Token name, std::vector<TypedName> variants,
+      Token name, GenericName name_param, std::vector<TypedName> variants,
       std::vector<std::unique_ptr<FunDecl>> methods, std::unique_ptr<Namespace> namesp
   );
 };
 
 struct FunDecl {
   Token name;
+  GenericName name_param;
   std::vector<std::unique_ptr<VarDecl>> params;
   GenericInst return_type;
   std::unique_ptr<Block> body;
   TypeDeclPtr method_of = static_cast<BuiltinType *>(nullptr);
   FunDecl(
-      Token name, std::vector<std::unique_ptr<VarDecl>> params,
+      Token name, GenericName name_param, std::vector<std::unique_ptr<VarDecl>> params,
       GenericInst return_type, std::unique_ptr<Block> body
   );
   std::string s_expr(int cur, int ind);
@@ -238,18 +227,18 @@ struct FunDecl {
 
 struct StructDecl {
   Token name;
+  GenericName name_param;
   std::vector<TypedName> fields;
   std::vector<std::unique_ptr<FunDecl>> methods;
   std::unique_ptr<Namespace> namesp;
   StructDecl(
-      Token name, std::vector<TypedName> fields,
+      Token name, GenericName name_param, std::vector<TypedName> fields,
       std::vector<std::unique_ptr<FunDecl>> methods, std::unique_ptr<Namespace> namesp
   );
 };
 
 struct VarDecl {
   Token name;
-  TypeId type = -1;
   std::optional<GenericInst> type_specifier;
   std::optional<Expr> initializer;
   VarDecl(
@@ -288,36 +277,9 @@ struct Stmt {
   std::string s_expr(int cur, int ind);
 };
 
-struct FunInst {
-  FunDecl *decl;
-  GenericInst concrete_fun;
-  std::vector<TypeId> param_types;
-  TypeId return_type = -1;
-  
-  FunInst(FunDecl *decl, GenericInst concrete_fun);
-  std::string name() const;
-};
-
-struct TypeInst {
-  TypeDeclPtr decl;
-  GenericInst concrete_type;
-  
-  TypeInst(TypeDeclPtr decl, GenericInst concrete_type);
-
-  template <typename T> bool is() {
-    return std::holds_alternative<T>(decl);
-  }
-  template <typename T> T &as() { return std::get<T>(decl); }
-  std::string name() const;
-};
-
 struct AST {
   std::vector<Declaration> decls;
-
-  std::vector<FunInst> functions;
-  std::vector<TypeInst> types;
   std::vector<std::unique_ptr<BuiltinType>> builtin_types;
-  std::unordered_map<std::string_view, TypeId> builtin_type_map;
 
   std::unique_ptr<Namespace> globals;
 

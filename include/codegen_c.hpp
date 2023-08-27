@@ -28,7 +28,7 @@ struct CFunInfo {
 
 class CodegenC {
 
-  const AST &ast;
+  const TAST &tast;
 
   std::vector<CTypeInfo> ctypes;
   std::vector<CFunInfo> cfuns;
@@ -59,7 +59,7 @@ class CodegenC {
 
 public:
   
-  CodegenC(const AST &ast);
+  CodegenC(const TAST &tast);
   
   std::string generate();
 

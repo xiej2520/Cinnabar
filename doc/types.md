@@ -59,3 +59,37 @@ for backend?
 
 * Only support type generics for now! Too much effort for const generics/monomorphizing
 code with const generics might be horrible.
+* Generics only at top-level?
+
+```Rust
+fn f<R>() {
+    struct S<T> { // can't use generic parameters from outer function
+        t: T,
+        r: R,
+    }
+}
+```
+
+```C++
+
+template<class R>
+void f() {
+    R r;
+    template<class T>
+    struct S { // a template declaration cannot appear at block scope
+        T t;
+    };
+}
+```
+
+```C++
+template<class T>
+struct S {
+    T t;
+    template<class R>
+    void f() {
+        R r;
+        T t;
+    };
+};
+```

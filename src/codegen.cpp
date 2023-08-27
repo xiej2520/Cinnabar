@@ -7,10 +7,10 @@
 namespace cinnabar {
 
   
-std::string generate(const AST &ast, CodegenOutput output_type) {
+std::string generate(const TAST &tast, CodegenOutput output_type) {
   switch (output_type) {
   case CodegenOutput::C: {
-    CodegenC cg(ast);
+    CodegenC cg(tast);
     return cg.generate();
   break;
   }

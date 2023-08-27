@@ -2,6 +2,8 @@
 
 #include "fmt/core.h"
 
+#include <unordered_set>
+
 namespace cinnabar {
 
 using enum Lexeme;
@@ -206,7 +208,7 @@ std::unique_ptr<StructDecl> Parser::struct_declaration() {
   }
 
   auto res =
-      std::make_unique<StructDecl>(name, fields, std::move(methods), std::move(namesp));
+      std::make_unique<StructDecl>(name, GenericName{std::string(name.str), {}}, fields, std::move(methods), std::move(namesp));
   link_name<StructDecl *>(name, res.get());
 
   namespaces.pop_back();
@@ -259,7 +261,7 @@ std::unique_ptr<EnumDecl> Parser::enum_declaration() {
   }
 
   auto res =
-      std::make_unique<EnumDecl>(name, variants, std::move(methods), std::move(namesp));
+      std::make_unique<EnumDecl>(name, GenericName{std::string(name.str), {}}, variants, std::move(methods), std::move(namesp));
   link_name<EnumDecl *>(name, res.get());
 
   namespaces.pop_back();
@@ -314,7 +316,7 @@ std::unique_ptr<FunDecl> Parser::function_declaration() {
     namespaces.pop_back();
     throw err;
   }
-  auto res = std::make_unique<FunDecl>(name, std::move(parameters), return_type, std::move(body));
+  auto res = std::make_unique<FunDecl>(name, GenericName{std::string(name.str), {}}, std::move(parameters), return_type, std::move(body));
   link_name<FunDecl *>(name, res.get());
 
   namespaces.pop_back();

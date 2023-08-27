@@ -1,6 +1,6 @@
 #pragma once
 
-#include "ast.hpp"
+#include "tast.hpp"
 
 
 namespace cinnabar {
@@ -10,6 +10,6 @@ enum class CodegenOutput {
   LLVM,
 };
 
-std::string generate(const AST &ast, CodegenOutput output_type);
+std::string generate(const TAST &tast, CodegenOutput output_type);
 
 } // namespace cinnbar
