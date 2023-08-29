@@ -2,16 +2,17 @@
 
 #include <functional>
 #include <ranges>
+#include <unordered_map>
 
 namespace cinnabar {
-  
-CTypeInfo::CTypeInfo(std::string mangled_name): mangled_name(std::move(mangled_name)) {
-}
 
-CEnumInfo &CTypeInfo::enum_data() {
+CTypeInfo::CTypeInfo(std::string mangled_name)
+    : mangled_name(std::move(mangled_name)), data(CBuiltinInfo{}) {}
+
+const CEnumInfo &CTypeInfo::enum_info() const {
   return std::get<CEnumInfo>(data);
 }
-CStructInfo &CTypeInfo::struct_data() {
+const CStructInfo &CTypeInfo::struct_info() const {
   return std::get<CStructInfo>(data);
 }
 
@@ -53,7 +54,7 @@ void CodegenC::emit_types() {
   int num_types = tast.types.size();
   ctypes.reserve(num_types);
 
-  std::vector<std::pair<const char *, const char *>> builtin_type_map = {
+  std::unordered_map<std::string_view, std::string> builtin_type_map = {
       {"__fun", ""},       {"unit", ""},        {"i8", "int8_t"},
       {"i16", "int16_t"},  {"i32", "int32_t"},  {"i64", "int64_t"},
       {"u8", "uint8_t"},   {"u16", "uint16_t"}, {"u32", "uint32_t"},
@@ -62,192 +63,122 @@ void CodegenC::emit_types() {
       {"VarRef", ""},      {"Span", ""},        {"VarSpan", ""},
       {"Span[char]", ""},
   };
-  for (size_t i = 0; i < builtin_type_map.size(); i++) {
-    ctypes.emplace_back(builtin_type_map[i].second);
-    type_map[builtin_type_map[i].first] = i;
-  }
 
-  std::vector<int> dependencies(num_types, 0);
-  std::vector<std::vector<int>> depends_on(num_types); // adj list
-
-  // create dependency list and mangled type names
+  // generate CTypes and emit forward declares
   for (int i = 0; i < num_types; i++) {
-    //const TTypeInst &type = tast.types[i];
+    const TTypeInst &type = tast.types[i];
     // clang-format off
-    /*
     std::visit(overload{
-      [&](BuiltinType *) { },
-      [&](EnumDecl *decl) {
+      [&](const BuiltinType &bt) {
+        ctypes.push_back(CTypeInfo(builtin_type_map[bt.name.str]));
+        type_map[bt.name.str] = i;
+      },
+      [&](const TEnumInst &inst) {
         std::unordered_set<int> depend;
 
-        CTypeInfo ctype(mangle_name(decl->name.str));
+        CTypeInfo ctype(mangle_name(inst.concrete_type.to_string()));
+        CEnumInfo enum_info;
 
-        for (auto &variant : decl->variants) {
-          std::get<CEnumInfo>(ctype.data).variant_names.push_back(
-              mangle_name(fmt::format("__{}_enum_var_{}", ctype.mangled_name, variant.name.str)));
-          depend.insert(variant.);
+        for (auto &variant : inst.variants) {
+          enum_info.variant_names.push_back(
+              mangle_name(fmt::format("__{}_enum_var_{}", ctype.mangled_name, variant.first)));
         }
+        ctype.data = std::move(enum_info);
         ctypes.push_back(ctype);
 
-        for (int type_id : depend) {
-          depends_on[i].push_back(type_id);
-        }
-        dependencies[i] = depend.size();
-        emit_type_forward_declare(i);
+        emit_type_forward_declare(ctype.mangled_name);
       },
-      [&](StructDecl *decl) {
+      [&](const TStructInst &inst) {
         std::unordered_set<int> depend;
-        for (auto &field : decl->fields) {
-          depend.insert(field.type);
-        }
-        for (int type_id : depend) {
-          depends_on[i].push_back(type_id);
-        }
 
-        CTypeInfo ctype(mangle_name(decl->name.str));
+        CTypeInfo ctype(mangle_name(inst.concrete_type.to_string()));
         ctypes.push_back(ctype);
-        emit_type_forward_declare(i);
+        emit_type_forward_declare(ctype.mangled_name);
       },
-    }, type.decl);
-    */
+    }, type.def);
     // clang-format on
   }
 
-  /*
-  std::vector<TypeId> type_order;
-  enum class Status {
-    DONE,
-    UNVISITED,
-    CURRENT_VISIT,
-  };
-  std::vector<Status> visit(tast.types.size(), Status::UNVISITED);
-  std::vector<int> current_search;
-
-  std::function<void(TypeId)> dfs;
-  dfs = [&](TypeId id) {
-    if (visit[id] == Status::DONE) {
-      return; // already in topo sort
-    }
-    if (visit[id] == Status::CURRENT_VISIT) { // loop detected
-      std::string err_msg("Mutually recursive types: ");
-      for (TypeId i : current_search) {
-        err_msg += ast.types[i].name();
-        err_msg += " -> ";
-      }
-      err_msg += ast.types[id].name();
-      error(err_msg);
-    }
-    current_search.push_back(id);
-
-    visit[id] = Status::CURRENT_VISIT;
-    for (TypeId depend : depends_on[id]) {
-      dfs(depend);
-    }
-    current_search.clear();
-    type_order.push_back(id);
-    visit[id] = Status::DONE;
-  };
-
-  for (size_t i = 0; i < ast.types.size(); i++) {
-    dfs(i);
-  }
-  
-  for (TypeId i : type_order) {
+  for (int i = 0; i < num_types; i++) {
+    // clang-format off
     std::visit(overload{
-      [](BuiltinType *) {},
-      [&](EnumDecl *) { emit_enum_definition(i); },
-      [&](StructDecl *) { emit_struct_definition(i); },
-    }, ast.types[i].decl);
+      [&](const CBuiltinInfo &) { },
+      [&](const CEnumInfo &) {
+        emit_enum_definition(i);
+      },
+      [&](const CStructInfo &) {
+        emit_struct_definition(i);
+      },
+    }, ctypes[i].data);
+    // clang-format on
   }
-  */
 }
 
-void CodegenC::emit_type_forward_declare(TypeId id) {
-  // clang-format off
-  (void) id;
-  /*
-  std::visit(overload{
-    [&](BuiltinType *) {}, // skip
-    [&](EnumDecl *) {
-      emit_line("typedef struct {0} {0};", ctypes[id].mangled_name);
-    },
-    [&](StructDecl *) {
-      emit_line("typedef struct {0} {0};", ctypes[id].mangled_name);
-    },
-  }, ast.types[id].decl);
-  */
-  // clang-format on
+void CodegenC::emit_type_forward_declare(std::string_view mangled_name) {
+  emit_line("typedef struct {0} {0};", mangled_name);
 }
 
 void CodegenC::emit_function_foward_declare(FunId id) {
   std::string declaration;
-  (void) declaration;
-  (void) id;
-  /*
-  const FunInst &fun = ast.functions[id];
-  if (fun.return_type == ast.builtin_type_map.at("unit")) {
+  const TFunInst &inst = tast.functions[id];
+  if (inst.return_type == tast.builtin_type_map.at("unit")) {
     declaration += "void";
-  }
-  else {
-    declaration += ast.types[fun.return_type].name();
+  } else {
+    declaration += ctypes[inst.return_type].mangled_name;
   }
   declaration += ' ';
   declaration += cfuns[id].mangled_name;
   declaration += '(';
-  if (fun.param_types.size() != 0) {
-    for (size_t i = 0; i < fun.param_types.size(); i++) {
-      declaration += fmt::format("{} {}, ",
-          ast.types[fun.param_types[i]].name(), fun.decl->params[i]->name.str);
+  if (inst.params.size() != 0) {
+    for (size_t i = 0; i < inst.params.size(); i++) {
+      declaration += fmt::format(
+          "{} {}, ", tast.types[inst.params[i]->type].name(),
+          inst.params[i]->name.str
+      );
     }
     declaration.resize(declaration.size() - 2);
   }
   declaration += ");";
 
-  emit_line("{}", declaration);
-  */
+  emit_line("{};", declaration);
 }
 
 void CodegenC::emit_enum_definition(TypeId id) {
-  (void) id;
-  /*
-  const EnumDecl &decl = *std::get<EnumDecl *>(ast.types[id].decl);
-  emit_line("struct {} {{", ctypes[id].mangled_name);
+  const CTypeInfo &ctype = ctypes[id];
+  const CEnumInfo &enum_info = ctype.enum_info();
+  const TEnumInst &inst = std::get<TEnumInst>(tast.types[id].def);
+  emit_line("struct {} {{", ctype.mangled_name);
   // emit enum of variant
   emit_line("  enum {{");
-  for (size_t j = 0; j < decl.variants.size(); j++) {
-    emit_line("    {},", ctypes[id].enum_data().variant_names[j]);
+  for (size_t j = 0; j < inst.variants.size(); j++) {
+    emit_line("    {},", enum_info.variant_names[j]);
   }
-  emit_line("  }} {}__enum;", ctypes[id].mangled_name);
+  emit_line("  }} {}__enum;", ctype.mangled_name);
   // emit union of variant
   emit_line("  union {{");
-  for (const auto &variant : decl.variants) {
-    if (variant.type == type_map["unit"]) {
-      //emit_line("    {} {};", variant.name.str);
-    }
-    else {
-      emit_line("    {} {};", ctypes[variant.type].mangled_name, variant.name.str);
+  for (const auto &variant : inst.variants) {
+    if (variant.second.first == type_map["unit"]) {
+    } else {
+      TypeId variant_id = variant.second.first;
+      emit_line("    {} {};", ctypes[variant_id].mangled_name, variant.first);
     }
   }
   emit_line("  }} {}__union;", ctypes[id].mangled_name);
   emit_line("}};");
-  */
 }
 
 void CodegenC::emit_struct_definition(TypeId id) {
-  (void) id;
-  /*
-  const StructDecl &decl = *std::get<StructDecl *>(ast.types[id].decl);
-  emit_line("struct {} {{", ctypes[id].mangled_name);
-  for (const auto &field : decl.fields) {
-    emit_line("  {} {};", ctypes[field.type].mangled_name, field.name.str);
+  const CTypeInfo &ctype = ctypes[id];
+  const TStructInst &inst = std::get<TStructInst>(tast.types[id].def);
+
+  emit_line("struct {} {{", ctype.mangled_name);
+  for (const auto &field : inst.fields) {
+    emit_line("  {} {};", ctypes[field.second.first].mangled_name, field.first);
   }
   emit_line("}};");
-  */
 }
 
-void CodegenC::emit_function_definition(FunId id) {
-  (void) id;
-}
+void CodegenC::emit_function_definition(FunId id) { (void)id; }
 
 std::string CodegenC::generate() {
   out = "";

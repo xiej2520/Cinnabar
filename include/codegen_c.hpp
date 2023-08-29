@@ -5,19 +5,25 @@
 #include "fmt/core.h"
 
 namespace cinnabar {
-  
+
+struct CBuiltinInfo {
+
+};
+
 struct CEnumInfo {
   std::vector<std::string> variant_names;
 };
+
 struct CStructInfo {
 
 };
+
 struct CTypeInfo {
   std::string mangled_name;
-  std::variant<CEnumInfo, CStructInfo> data;
+  std::variant<CBuiltinInfo, CEnumInfo, CStructInfo> data;
 
-  CEnumInfo &enum_data();
-  CStructInfo &struct_data();
+  const CEnumInfo &enum_info() const;
+  const CStructInfo &struct_info() const;
 
   CTypeInfo(std::string mangled_name);
 };
@@ -47,7 +53,7 @@ class CodegenC {
   void emit_line(fmt::format_string<Args...> fmt, Args&&... args);
   void emit_include(std::string_view file_name);
   void emit_types();
-  void emit_type_forward_declare(TypeId id);
+  void emit_type_forward_declare(std::string_view mangled_name);
   void emit_function_foward_declare(FunId id);
   // check type before calling
   void emit_enum_definition(TypeId id);
