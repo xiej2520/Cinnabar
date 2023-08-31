@@ -37,6 +37,19 @@ fun main() {
   {
     let e = 4;
   }
+  
+
+  let f = {
+    let g = 4
+    let h = {
+      let i = g + 4
+      i + 5
+    }
+    h + {
+      let j = 5
+      h + j + 6
+    }
+  }
 }
 
 struct S {

@@ -303,8 +303,10 @@ std::string Expr::s_expr(int cur, int ind) {
       return fmt::format(
           "{:{}}(Literal[{}])\n", "", cur, to_string(expr->val));
     },
-    [&](unique_ptr<Unary> &) {
-      return fmt::format("{:{}}(Unary)\n", "", cur);
+    [&](unique_ptr<Unary> &expr) {
+      auto res = fmt::format("{:{}}(Unary[{}]\n", "", cur, to_string(expr->op));
+      res += expr->operand.s_expr(cur+ind, ind);
+      return res + fmt::format("{:{}})\n", "", cur);
     },
     [&](unique_ptr<Variable> &expr) {
       return fmt::format(

@@ -1,0 +1,25 @@
+fun main() {
+  var b = true
+  var x = if b {
+    let y = 4
+    y + 8
+  }
+  else if b && !b {
+    9
+  }
+  else if false {
+    10
+  }
+  else {
+    if true {
+      11
+    }
+    else if false {
+      12
+    }
+    else {
+      13
+    }
+  }
+}
+

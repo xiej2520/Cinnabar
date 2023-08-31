@@ -105,46 +105,57 @@ DeclaredName TypeResolver::get_decl(const GenericInst &geninst) {
 
   auto namesp = cur_ast_namesp;
   auto tnamesp = cur_tnamesp;
-  
+
   std::string geninst_str = geninst.to_string();
-  for (; namesp != nullptr; namesp = namesp->parent, tnamesp = tnamesp->parent) {
+  for (; namesp != nullptr;
+       namesp = namesp->parent, tnamesp = tnamesp->parent) {
     if (namesp->names.contains(base_name)) {
       DeclPtr decl = namesp->names[base_name];
-      return std::visit(overload{
-        [&](BuiltinType *decl) -> DeclaredName {
-          if (!tnamesp->concrete_types.contains(geninst_str)) {
-            return tnamesp->concrete_types[geninst_str] = add_type(geninst, decl, tnamesp);
-          }
-          return tnamesp->concrete_types[geninst_str];
-        },
-        [&](EnumDecl *decl) -> DeclaredName {
-          if (!tnamesp->concrete_types.contains(geninst_str)) {
-            return tnamesp->concrete_types[geninst_str] = add_type(geninst, decl, tnamesp);
-          }
-          return tnamesp->concrete_types[geninst_str];
-        },
-        [&](FunDecl *) -> DeclaredName {
-          if (!tnamesp->concrete_funs.contains(geninst_str)) {
-            return tnamesp->concrete_funs[geninst_str] = add_fun(geninst, std::get<FunDecl *>(decl), tnamesp);
-          }
-          return tnamesp->concrete_funs[geninst_str];
-        },
-        [&](StructDecl *decl) -> DeclaredName {
-          if (!tnamesp->concrete_types.contains(geninst_str)) {
-            return tnamesp->concrete_types[geninst_str] = add_type(geninst, decl, tnamesp);
-          }
-          return tnamesp->concrete_types[geninst_str];
-        },
-        [&](VarDecl *) -> DeclaredName {
-          if (!geninst.is_concrete()) {
-            error("Internal error: Tried to search for variable with type parameter?");
-          }
-          else if (!tnamesp->variables.contains(base_name)) {
-            error("Internal error: variable declared in namespace but not typed namesace?");
-          }
-          return tnamesp->variables[base_name];
-        },
-      }, decl);
+      return std::visit(
+          overload{
+              [&](BuiltinType *decl) -> DeclaredName {
+                if (!tnamesp->concrete_types.contains(geninst_str)) {
+                  return tnamesp->concrete_types[geninst_str] =
+                             add_type(geninst, decl, tnamesp);
+                }
+                return tnamesp->concrete_types[geninst_str];
+              },
+              [&](EnumDecl *decl) -> DeclaredName {
+                if (!tnamesp->concrete_types.contains(geninst_str)) {
+                  return tnamesp->concrete_types[geninst_str] =
+                             add_type(geninst, decl, tnamesp);
+                }
+                return tnamesp->concrete_types[geninst_str];
+              },
+              [&](FunDecl *) -> DeclaredName {
+                if (!tnamesp->concrete_funs.contains(geninst_str)) {
+                  return tnamesp->concrete_funs[geninst_str] = add_fun(
+                             geninst, std::get<FunDecl *>(decl), tnamesp
+                         );
+                }
+                return tnamesp->concrete_funs[geninst_str];
+              },
+              [&](StructDecl *decl) -> DeclaredName {
+                if (!tnamesp->concrete_types.contains(geninst_str)) {
+                  return tnamesp->concrete_types[geninst_str] =
+                             add_type(geninst, decl, tnamesp);
+                }
+                return tnamesp->concrete_types[geninst_str];
+              },
+              [&](VarDecl *) -> DeclaredName {
+                if (!geninst.is_concrete()) {
+                  error("Internal error: Tried to search for variable with "
+                        "type parameter?");
+                } else if (!tnamesp->variables.contains(base_name)) {
+                  error(fmt::format(
+                      "Variable {} used before definition complete.", base_name
+                  ));
+                }
+                return tnamesp->variables[base_name];
+              },
+          },
+          decl
+      );
     }
   }
   error(fmt::format("Base name {} not found.", base_name));
@@ -241,12 +252,38 @@ FunId TypeResolver::add_fun(
   for (size_t i = 0; i < decl->params.size(); i++) {
     fun_inst.params.push_back(resolve(*decl->params[i]));
   }
-  
+
   fun_inst.return_type = get_typeid(decl->return_type);
-  
+
   fun_inst.body = resolve(*decl->body, std::move(block_namesp));
 
   return res;
+}
+
+TypeId TypeResolver::find_unary_op(UnaryOp op, TypeId operand_type) {
+  switch (op) {
+  case UnaryOp::PLUS:
+  case UnaryOp::NEG:
+    if (!builtin_numeric_types.contains(operand_type)) {
+      error(fmt::format(
+          "Invalid unary operation: {} {}\n", to_string(op), operand_type.value
+      ));
+    }
+    return operand_type;
+  case UnaryOp::NOT:
+    if (operand_type != builtin_type_map["bool"]) {
+      error(fmt::format(
+          "Invalid unary operation: {} {}\n", to_string(op), operand_type.value
+      ));
+    }
+    return operand_type;
+  case UnaryOp::REF:
+  case UnaryOp::DEREF:
+  default:
+    error(fmt::format(
+        "Invalid unary operation: {} {}\n", to_string(op), operand_type.value
+    ));
+  }
 }
 
 TypeId
@@ -262,9 +299,9 @@ TypeResolver::find_binary_op(BinaryOp op, TypeId lhs_type, TypeId rhs_type) {
     case BinaryOp::MUL:
     case BinaryOp::DIV:
     case BinaryOp::MOD:
+    case BinaryOp::XOR:
     case BinaryOp::BIT_AND:
     case BinaryOp::BIT_OR:
-    case BinaryOp::BIT_XOR:
     case BinaryOp::LEFT_SHIFT:
     case BinaryOp::RIGHT_SHIFT:
       return lhs_type;
@@ -277,8 +314,18 @@ TypeResolver::find_binary_op(BinaryOp op, TypeId lhs_type, TypeId rhs_type) {
     default:;
     }
   }
+  else if (lhs_type == builtin_type_map["bool"] && rhs_type == builtin_type_map["bool"]) {
+    switch (op) {
+    case BinaryOp::AND:
+    case BinaryOp::OR:
+    case BinaryOp::XOR:
+      return builtin_type_map["bool"];
+    default:;
+    }
+  }
   error(fmt::format(
-      "Invalid binary operation: {} {} {}\n", to_string(op), lhs_type.value, rhs_type.value
+      "Invalid binary operation: {} {} {}\n", to_string(op), lhs_type.value,
+      rhs_type.value
   ));
 }
 
@@ -329,7 +376,7 @@ std::optional<TStmt> TypeResolver::resolve(Stmt &stmt) {
       return std::nullopt;
     },
     [&](std::unique_ptr<Expression> &stmt) -> std::optional<TStmt>  {
-      return TStmt{TExpression{resolve(stmt->expr)}};
+      return TStmt{resolve(stmt->expr)};
     },
     [&](std::unique_ptr<For> &) -> std::optional<TStmt>  { return std::nullopt; },
     [&](std::unique_ptr<Return> &) -> std::optional<TStmt>  { return std::nullopt; },
@@ -497,11 +544,16 @@ TExpr TypeResolver::resolve(Expr &expr) {
         tbranch.block = resolve(*branch->block);
       }
 
-      res->type = res->branches.front()->block->type;
-      for (size_t i = 1; i < res->branches.size(); i++) {
-        if (res->type != res->branches[i]->block->type) {
-          res->type = builtin_type_map["unit"];
-          break;
+      if (!res->has_else()) {
+        res->type = builtin_type_map["unit"];
+      }
+      else {
+        res->type = res->branches.front()->block->type;
+        for (size_t i = 1; i < res->branches.size(); i++) {
+          if (res->type != res->branches[i]->block->type) {
+            res->type = builtin_type_map["unit"];
+            break;
+          }
         }
       }
 
@@ -524,11 +576,19 @@ TExpr TypeResolver::resolve(Expr &expr) {
       
       return TExpr{std::move(res)};
     },
-    [&](std::unique_ptr<Unary> &) { return TExpr{std::make_unique<TLiteral>(builtin_type_map["i32"], 0)}; },
+    [&](std::unique_ptr<Unary> &expr) {
+      auto res = std::make_unique_for_overwrite<TUnary>();
+      res->op = expr->op;
+      res->operand = resolve(expr->operand);
+      
+      res->type = find_unary_op(expr->op, res->operand.type());
+      return TExpr{std::move(res)};
+    },
     [&](std::unique_ptr<Variable> &expr) {
       // "variable" is identifier, can be var, fun, struct, enum
       auto res = std::make_unique_for_overwrite<TVariable>();
 
+      res->name = expr->name;
       res->decl = get_decl(expr->name.str);
       if (FunId *id = std::get_if<FunId>(&res->decl)) {
         res->type = builtin_type_map["__fun"];
@@ -546,21 +606,21 @@ TExpr TypeResolver::resolve(Expr &expr) {
   // clang-format on
 }
 
-std::unique_ptr<TBlock> TypeResolver::resolve(Block &block, std::unique_ptr<TNamespace> tnamesp) {
+std::unique_ptr<TBlock>
+TypeResolver::resolve(Block &block, std::unique_ptr<TNamespace> tnamesp) {
   auto res = std::make_unique<TBlock>();
   auto p = push_namespace(block.namesp.get(), tnamesp.get());
-  
+
   for (Stmt &stmt : block.stmts) {
     auto tstmt = resolve(stmt);
     if (tstmt.has_value()) {
       res->stmts.push_back(std::move(tstmt.value()));
     }
   }
-  
-  if (!res->stmts.empty() && res->stmts.back().is<TExpression>()) {
-    res->type = res->stmts.back().as<TExpression>().expr.type();
-  }
-  else {
+
+  if (!res->stmts.empty() && res->stmts.back().is<TExpr>()) {
+    res->type = res->stmts.back().as<TExpr>().type();
+  } else {
     res->type = builtin_type_map["unit"];
   }
   return res;
@@ -609,6 +669,7 @@ TAST TypeResolver::resolve() {
   tast.types = std::move(types);
   tast.globals = std::move(globals);
   tast.root_namesp = std::move(root_namesp);
+  tast.builtin_type_map = std::move(builtin_type_map);
 
   return tast;
 }

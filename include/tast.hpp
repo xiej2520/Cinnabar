@@ -19,7 +19,6 @@ struct TAssign;
 struct TBreak;
 struct TContinue;
 struct TDeclaration;
-struct TExpression;
 struct TFor;
 struct TReturn;
 struct TWhile;
@@ -118,6 +117,8 @@ struct TIf {
     std::unique_ptr<TBlock> block;
   };
   std::vector<std::unique_ptr<TBranch>> branches;
+  
+  bool has_else();
 };
 
 using LiteralVariant =
@@ -151,10 +152,6 @@ struct TAssign {
 struct TBreak {};
 struct TContinue {};
 
-struct TExpression {
-  TExpr expr;
-};
-
 struct TFor {};
 struct TReturn {};
 
@@ -168,7 +165,7 @@ struct TWhile {};
 
 using TStmtVariant = std::variant<
     std::unique_ptr<TAssign>, std::unique_ptr<TBreak>,
-    std::unique_ptr<TContinue>, TExpression,
+    std::unique_ptr<TContinue>, TExpr,
     std::unique_ptr<TFor>, std::unique_ptr<TReturn>, std::unique_ptr<TVarInst>,
     std::unique_ptr<TWhile>>;
 

@@ -37,9 +37,9 @@ BinaryOp to_binop(Lexeme l) {
   case LESS_EQUAL:          return BinaryOp::LTE;
   case AMPERSAND_AMPERSAND: return BinaryOp::AND;
   case BAR_BAR:             return BinaryOp::OR;
+  case CARET:               return BinaryOp::XOR;
   case AMPERSAND:           return BinaryOp::BIT_AND;
   case BAR:                 return BinaryOp::BIT_OR;
-  case CARET:               return BinaryOp::BIT_XOR;
   case LESS_LESS:           return BinaryOp::LEFT_SHIFT;
   case GREATER_GREATER:     return BinaryOp::RIGHT_SHIFT;
   default:                  return BinaryOp::ERROR;
@@ -66,6 +66,19 @@ AssignOp to_assignop(Lexeme l) {
   // clang-format on
 }
 
+std::string to_string(UnaryOp u) {
+  switch(u) {
+    // clang-format off
+    case UnaryOp::PLUS: return "+";
+    case UnaryOp::NEG:  return "-";
+    case UnaryOp::NOT:  return "!";
+    case UnaryOp::REF: return "&";
+    case UnaryOp::DEREF: return "*";
+    case UnaryOp::ERROR: return "NOT A UNARY OP";
+    // clang-format on
+  }
+}
+
 
 std::string to_string(BinaryOp b) {
   switch (b) {
@@ -86,9 +99,10 @@ std::string to_string(BinaryOp b) {
     case BinaryOp::AND: return "&&";
     case BinaryOp::OR: return "||";
 
+    case BinaryOp::XOR: return "^";
+
     case BinaryOp::BIT_AND: return "&";
     case BinaryOp::BIT_OR: return "|";
-    case BinaryOp::BIT_XOR: return "^";
     case BinaryOp::LEFT_SHIFT: return "<<";
     case BinaryOp::RIGHT_SHIFT: return ">>";
     // clang-format on

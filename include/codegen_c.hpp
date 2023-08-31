@@ -15,7 +15,7 @@ struct CEnumInfo {
 };
 
 struct CStructInfo {
-
+  std::vector<std::string> field_names;
 };
 
 struct CTypeInfo {
@@ -30,6 +30,8 @@ struct CTypeInfo {
 
 struct CFunInfo {
   std::string mangled_name;
+
+  CFunInfo(std::string mangled_name);
 };
 
 class CodegenC {
@@ -49,17 +51,36 @@ class CodegenC {
   // Map[i32,Ref[i32]] -> "Map_i32_Ref_i32__4" ...
   std::string mangle_name(std::string_view name);
   
+  std::string_view type_name(TypeId id);
+  
+  template<typename... Args>
+  void emit(fmt::format_string<Args...> fmt, Args&&... args);
   template<typename... Args>
   void emit_line(fmt::format_string<Args...> fmt, Args&&... args);
+
   void emit_include(std::string_view file_name);
   void emit_types();
   void emit_type_forward_declare(std::string_view mangled_name);
-  void emit_function_foward_declare(FunId id);
+
   // check type before calling
   void emit_enum_definition(TypeId id);
   void emit_struct_definition(TypeId id);
   
+  void emit_functions();
+  void emit_function_signature(FunId id);
+  void emit_function_forward_declare(FunId id);
+  
   void emit_function_definition(FunId id);
+  
+  void emit_stmt(const TStmt &stmt);
+  
+  //// should probably be replaced with an IR stage
+  //void preprocess(const TStmt &stmt);
+  //void preprocess(const TExpr &expr);
+
+  // emits the code needed to evaluate the expr, then return string for expr (in C)
+  // postorder traversal?
+  std::string emit_expr(const TExpr &expr);
 
   [[noreturn]] void error(std::string_view message);
 

@@ -15,6 +15,7 @@ enum class UnaryOp {
 };
 
 UnaryOp to_unaryop(Lexeme l);
+std::string to_string(UnaryOp u);
 
 enum class BinaryOp {
   ADD,
@@ -33,9 +34,10 @@ enum class BinaryOp {
   AND,
   OR,
 
+  XOR,
+
   BIT_AND,
   BIT_OR,
-  BIT_XOR,
   LEFT_SHIFT,
   RIGHT_SHIFT,
 

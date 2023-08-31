@@ -431,47 +431,53 @@ Expr Parser::expression_bp(int min_bp) {
   if (prefix_binding_power(token.lexeme) != -1) {
     lhs = Expr{std::make_unique<Unary>(
         to_unaryop(token.lexeme),
-        Expr(expression_bp(prefix_binding_power(token.lexeme)))
+        expression_bp(prefix_binding_power(token.lexeme))
     )};
   }
-  switch (token.lexeme) {
-    // clang-format off
-    case TRUE: lhs = Expr{std::make_unique<Literal>(true)}; break;
-    case FALSE: lhs = Expr{std::make_unique<Literal>(false)}; break;
-    case INTEGER: lhs = Expr{std::make_unique<Literal>(std::stoi(std::string(token.str)))}; break;
-    case DECIMAL: lhs = Expr{std::make_unique<Literal>(std::stod(std::string(token.str)))}; break;
-    case STRING: lhs = Expr{std::make_unique<Literal>(std::string{token.str})}; break;
-    case CHARACTER: lhs = Expr{std::make_unique<Literal>(token.str[1])}; break; // fix later
-    case IDENTIFIER: lhs = Expr{std::make_unique<Variable>(token)}; break;
-    case IF: {
-      std::vector<std::unique_ptr<If::Branch>> branches;
-      Expr condition = expression_bp(0);
-      expect(LEFT_BRACE, "Expected '{' after 'if'.");
-      branches.emplace_back(std::make_unique<If::Branch>(Expr(std::move(condition)), block()));
+  else {
+    switch (token.lexeme) {
+      // clang-format off
+      case TRUE: lhs = Expr{std::make_unique<Literal>(true)}; break;
+      case FALSE: lhs = Expr{std::make_unique<Literal>(false)}; break;
+      case INTEGER: lhs = Expr{std::make_unique<Literal>(std::stoi(std::string(token.str)))}; break;
+      case DECIMAL: lhs = Expr{std::make_unique<Literal>(std::stod(std::string(token.str)))}; break;
+      case STRING: lhs = Expr{std::make_unique<Literal>(std::string{token.str})}; break;
+      case CHARACTER: lhs = Expr{std::make_unique<Literal>(token.str[1])}; break; // fix later
+      case IDENTIFIER: lhs = Expr{std::make_unique<Variable>(token)}; break;
+      case IF: {
+        std::vector<std::unique_ptr<If::Branch>> branches;
+        Expr condition = expression_bp(0);
+        expect(LEFT_BRACE, "Expected '{' after condition.");
+        branches.emplace_back(std::make_unique<If::Branch>(std::move(condition), block()));
 
-      while (match(ELSE)) {
-        if (match(IF)) {
-          branches.emplace_back(std::make_unique<If::Branch>(Expr(expression_bp(0)), block()));
+        while (match(ELSE)) {
+          if (match(IF)) {
+            Expr condition = expression_bp(0);
+            expect(LEFT_BRACE, "Expected '{' after condition.");
+            branches.emplace_back(std::make_unique<If::Branch>(std::move(condition), block()));
+          }
+          else {
+            expect(LEFT_BRACE, "Expected '{' after 'else'.");
+            branches.emplace_back(std::make_unique<If::Branch>(Expr{std::make_unique<Literal>(true)}, block()));
+            break;
+          }
         }
-        else {
-          expect(LEFT_BRACE, "Expected '{' after 'else'.");
-          branches.emplace_back(std::make_unique<If::Branch>(Expr{std::make_unique<Literal>(true)}, block()));
-          break;
-        }
+        lhs = Expr{std::make_unique<If>(std::move(branches))};
+        break;
       }
-      lhs = Expr{std::make_unique<If>(std::move(branches))};
-      break;
+      case ELSE: {
+        throw error_prev("Unexpected 'else' with no preceding 'if'.");
+      }
+      case LEFT_BRACE: {
+        lhs = Expr{block()};
+        break;
+      }
+      default: throw error_prev(fmt::format("Unexpected token in expression: {}.", to_string(token.lexeme)));
+      // clang-format on
     }
-    case ELSE: {
-      throw error_prev("Unexpected 'else' with no preceding 'if'.");
-    }
-    case LEFT_BRACE: {
-      lhs = Expr{block()};
-      break;
-    }
-    default: throw error_prev(fmt::format("Unexpected token in expression: {}.", to_string(token.lexeme)));
-    // clang-format on
   }
+
+  // LHS done, parse RHS
 
   // parse postfix or infix with min_bp or greater
   while (cur_token().lexeme != END_OF_FILE) {
