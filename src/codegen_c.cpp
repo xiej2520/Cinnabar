@@ -203,7 +203,7 @@ void CodegenC::emit_function_signature(FunId id) {
   if (inst.params.size() != 0) {
     for (size_t i = 0; i < inst.params.size(); i++) {
       declaration += fmt::format(
-          "{} {}, ", tast.types[inst.params[i]->type].name(),
+          "{} {}, ", ctypes[inst.params[i]->type].mangled_name,
           inst.params[i]->name.str
       );
     }
@@ -301,8 +301,22 @@ std::string CodegenC::emit_expr(const TExpr &expr) {
       return std::string{};
     },
     [&](const std::unique_ptr<TDotRef> &) { return std::string{}; },
-    [&](const std::unique_ptr<TFunCall> &) { return std::string{}; },
+    [&](const std::unique_ptr<TFunCall> &expr) {
+      auto res = emit_expr(expr->callee);
+      res += '(';
+      if (!expr->args.empty()) {
+        for (auto &arg : expr->args) {
+          res += emit_expr(arg);
+          res += ", ";
+        }
+        res.pop_back();
+        res.pop_back();
+      }
+      res += ')';
+      return res;
+    },
     [&](const std::unique_ptr<TIf> &expr) {
+      // does not have value
       if (expr->type == tast.builtin_type_map.at("unit")) {
         auto expr_condition = emit_expr(expr->branches.front()->condition);
         emit_line("if ({}) {{", expr_condition);
@@ -315,12 +329,21 @@ std::string CodegenC::emit_expr(const TExpr &expr) {
         for (size_t i = 1; i < expr->branches.size(); i++) {
           emit_line("else {{");
           auto expr_condition = emit_expr(expr->branches[i]->condition);
-          emit_line("if ({}) {{", expr_condition);
-          for (auto &stmt : expr->branches[i]->block->stmts) {
-            emit_stmt(stmt);
+
+          if (i != expr->branches.size() - 1 || !expr->has_else()) {
+            emit_line("if ({}) {{", expr_condition);
+            for (auto &stmt : expr->branches[i]->block->stmts) {
+              emit_stmt(stmt);
+            }
+            // closing brace for if
+            emit_line("}}");
           }
-          // closing brace for if
-          emit_line("}}");
+          else { // is else
+            for (auto &stmt : expr->branches[i]->block->stmts) {
+              emit_stmt(stmt);
+            }
+          }
+
         }
         // closing brace for else
         for (size_t i = 1; i < expr->branches.size(); i++) {
@@ -328,6 +351,7 @@ std::string CodegenC::emit_expr(const TExpr &expr) {
         }
         return std::string{};
       }
+
       // if has a value
       auto if_var_name = mangle_name("__cb_if_expr_val");
       // if condition
@@ -349,15 +373,20 @@ std::string CodegenC::emit_expr(const TExpr &expr) {
       for (size_t i = 1; i < expr->branches.size(); i++) {
         emit_line("else {{");
         auto expr_condition = emit_expr(expr->branches[i]->condition);
-        emit_line("if ({}) {{", expr_condition);
+        if (i != expr->branches.size() - 1 || !expr->has_else()) {
+          emit_line("if ({}) {{", expr_condition);
+        }
+
         auto &block = expr->branches[i]->block;
         for (size_t i = 0; i + 1 < block->stmts.size(); i++) {
           emit_stmt(block->stmts[i]);
         }
         auto expr_val = emit_expr(block->stmts.back().as<TExpr>());
         emit_line("{} = {};", if_var_name, expr_val);
-        // closing brace for if
-        emit_line("}}");
+
+        if (i != expr->branches.size() - 1 || !expr->has_else()) {
+          emit_line("}}");
+        }
       }
       for (size_t i = 1; i < expr->branches.size(); i++) {
         // closing brace for else

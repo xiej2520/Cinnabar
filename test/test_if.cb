@@ -7,7 +7,7 @@ fun main() {
   else if b && !b {
     9
   }
-  else if false {
+  else if { var x = 4; if x > 5 { false } else { true } } {
     10
   }
   else {
@@ -20,6 +20,17 @@ fun main() {
     else {
       13
     }
+  }
+  
+  foo(if b { 35 } else { 40 }, if x < 4 { 10.2 } else if x > 5 { 0.3 } else { 9.0 })
+}
+
+fun foo(a i32, b f64) {
+  if a > 4 {
+    b + 1.2
+  }
+  else {
+    b - 2.4
   }
 }
 

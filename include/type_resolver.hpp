@@ -13,7 +13,7 @@ struct TypeResolver {
     Namespace *prev_namesp;
     TNamespace *prev_tnamesp;
   public:
-    PushNamespace(TypeResolver &tr, Namespace *namesp, TNamespace *tnamesp):
+    inline PushNamespace(TypeResolver &tr, Namespace *namesp, TNamespace *tnamesp):
         tr(tr), prev_namesp(tr.cur_ast_namesp), prev_tnamesp(tr.cur_tnamesp) {
       tr.cur_ast_namesp = namesp;
       tr.cur_tnamesp = tnamesp;

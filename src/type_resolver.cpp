@@ -181,21 +181,21 @@ TypeId TypeResolver::add_type(
     },
     [&](EnumDecl *decl) {
       types.push_back(TTypeInst{TEnumInst{type, {}, std::make_unique<TNamespace>(parent_tnamesp), {}, {}}});
-      auto &enum_inst = types.back().as<TEnumInst>();
-      auto p = push_namespace(decl->namesp.get(), enum_inst.namesp.get());
+      // don't use reference, types will get resized
+      auto p = push_namespace(decl->namesp.get(), types[res].as<TEnumInst>().namesp.get());
 
       parent_tnamesp->concrete_types[type_name] = res;
-      enum_inst.namesp->concrete_types[type_name] = res;
+      types[res].as<TEnumInst>().namesp->concrete_types[type_name] = res;
 
       for (size_t i = 0; i < type.args.size(); i++) {
         TypeId genparam_id = get_typeid(type.args[i]);
-        enum_inst.generic_args.push_back(genparam_id);
-        enum_inst.namesp->concrete_types[decl->name_param.params[i]] = genparam_id;
+        types[res].as<TEnumInst>().generic_args.push_back(genparam_id);
+        types[res].as<TEnumInst>().namesp->concrete_types[decl->name_param.params[i]] = genparam_id;
       }
       
       for (size_t i = 0; i < decl->variants.size(); i++) {
         auto &[name, gentype] = decl->variants[i];
-        enum_inst.variants[name.str] = {get_typeid(gentype), i};
+        types[res].as<TEnumInst>().variants[name.str] = {get_typeid(gentype), i};
       }
       
       // add methods? later
@@ -203,21 +203,20 @@ TypeId TypeResolver::add_type(
     },
     [&](StructDecl *decl) {
       types.push_back(TTypeInst{TStructInst{type, {}, std::make_unique<TNamespace>(parent_tnamesp), {}, {}}});
-      auto &struct_inst = types.back().as<TStructInst>();
-      auto p = push_namespace(decl->namesp.get(), struct_inst.namesp.get());
+      auto p = push_namespace(decl->namesp.get(), types[res].as<TStructInst>().namesp.get());
 
       parent_tnamesp->concrete_types[type_name] = res;
-      struct_inst.namesp->concrete_types[type_name] = res;
+      types[res].as<TStructInst>().namesp->concrete_types[type_name] = res;
 
       for (size_t i = 0; i < type.args.size(); i++) {
         TypeId genparam_id = get_typeid(type.args[i]);
-        struct_inst.generic_args.push_back(genparam_id);
-        struct_inst.namesp->concrete_types[decl->name_param.params[i]] = genparam_id;
+        types[res].as<TStructInst>().generic_args.push_back(genparam_id);
+        types[res].as<TStructInst>().namesp->concrete_types[decl->name_param.params[i]] = genparam_id;
       }
       
       for (size_t i = 0; i < decl->fields.size(); i++) {
         auto &[name, gentype] = decl->fields[i];
-        struct_inst.fields[name.str] = {get_typeid(gentype), i};
+        types[res].as<TStructInst>().fields[name.str] = {get_typeid(gentype), i};
       }
       
       // add methods? later
@@ -235,7 +234,7 @@ FunId TypeResolver::add_fun(
   FunId res = functions.size();
 
   functions.push_back(TFunInst{fun, {}, {}, -1, nullptr});
-  auto &fun_inst = functions.back();
+  // functions changes size - do not take reference
 
   auto block_namesp = std::make_unique<TNamespace>(parent_tnamesp);
   parent_tnamesp->concrete_funs[fun.to_string()] = res;
@@ -243,19 +242,19 @@ FunId TypeResolver::add_fun(
 
   for (size_t i = 0; i < fun.args.size(); i++) {
     TypeId genparam_id = get_typeid(fun.args[i]);
-    fun_inst.generic_args.push_back(genparam_id);
+    functions[res].generic_args.push_back(genparam_id);
     block_namesp->concrete_types[decl->name_param.params[i]] = genparam_id;
   }
 
   auto p = push_namespace(decl->body->namesp.get(), block_namesp.get());
 
   for (size_t i = 0; i < decl->params.size(); i++) {
-    fun_inst.params.push_back(resolve(*decl->params[i]));
+    functions[res].params.push_back(resolve(*decl->params[i]));
   }
 
-  fun_inst.return_type = get_typeid(decl->return_type);
+  functions[res].return_type = get_typeid(decl->return_type);
 
-  fun_inst.body = resolve(*decl->body, std::move(block_namesp));
+  functions[res].body = resolve(*decl->body, std::move(block_namesp));
 
   return res;
 }
@@ -307,6 +306,7 @@ TypeResolver::find_binary_op(BinaryOp op, TypeId lhs_type, TypeId rhs_type) {
       return lhs_type;
     case BinaryOp::EQ:
     case BinaryOp::NEQ:
+    case BinaryOp::LT:
     case BinaryOp::GT:
     case BinaryOp::GTE:
     case BinaryOp::LTE:
@@ -428,6 +428,7 @@ std::unique_ptr<TVarInst> TypeResolver::resolve(VarDecl &decl) {
         error(fmt::format("Variable {} has declared type {}, does not match initializer type {}",
             res->name.str, specifier_type.value, res->type.value));
     }
+    res->type = specifier_type;
   }
   if (res->type == -1) {
     error(fmt::format("Variable {} does not have a declared type or initializer"
@@ -520,7 +521,7 @@ TExpr TypeResolver::resolve(Expr &expr) {
         error("Function declaration has different arity than function call.");
       }
       // check function type match
-      for (size_t i=0; i<res->args.size(); i++) {
+      for (size_t i=0; i < expr->args.size(); i++) {
         res->args.push_back(resolve(expr->args[i]));
 
         if (res->args[i].type() != fun_inst.params[i]->type) {
@@ -609,7 +610,8 @@ TExpr TypeResolver::resolve(Expr &expr) {
 std::unique_ptr<TBlock>
 TypeResolver::resolve(Block &block, std::unique_ptr<TNamespace> tnamesp) {
   auto res = std::make_unique<TBlock>();
-  auto p = push_namespace(block.namesp.get(), tnamesp.get());
+  res->namesp = std::move(tnamesp);
+  auto p = push_namespace(block.namesp.get(), res->namesp.get());
 
   for (Stmt &stmt : block.stmts) {
     auto tstmt = resolve(stmt);

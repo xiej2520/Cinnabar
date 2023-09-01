@@ -291,18 +291,14 @@ std::unique_ptr<FunDecl> Parser::function_declaration() {
   try {
     if (!check(RIGHT_PAREN)) {
       do {
-        parameters.push_back(variable_declaration());
-        if (!parameters.back()->type_specifier.has_value()) {
-          throw error_at(
-              parameters.back()->name, "Function parameter must be typed."
-          );
+        Token name = expect(IDENTIFIER, "Expected identifier for function parameter");
+        if (!check(IDENTIFIER)) {
+          error_cur("Function parameter must have type specifier");
         }
-        if (!parameters.back()->initializer.has_value()) {
-          throw error_at(
-              parameters.back()->name,
-              "Function parameter cannot (currently) have initializer."
-          );
-        }
+        auto type = type_name();
+        auto param = std::make_unique<VarDecl>(name, type, std::nullopt);
+        add_name<VarDecl *>(name, param.get());
+        parameters.push_back(std::move(param));
       } while (match(COMMA));
     }
     expect(RIGHT_PAREN, "Expect ')' after parameters.");
