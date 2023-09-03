@@ -29,6 +29,7 @@ endif()
 # see commands in build/compile_commands.json
 
 # comes after add_compile_options
+#runs clang-tidy with build
 #set(CMAKE_CXX_CLANG_TIDY "clang-tidy-16;-header-filter=.*")
 add_executable(cinnabar ${SOURCES})
 

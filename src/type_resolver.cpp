@@ -466,6 +466,7 @@ TExpr TypeResolver::resolve(Expr &expr) {
         },
         [&](const TStructInst &inst) {
           if (auto it = inst.fields.find(res->name.str); it != inst.fields.end()) {
+            res->prop_idx = it->second.second;
             return it->second.first;
           }
           else if (auto it = inst.methods.find(res->name.str); it != inst.methods.end()) {

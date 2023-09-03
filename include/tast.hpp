@@ -98,6 +98,7 @@ struct TBlock {
 struct TDotRef {
   TypeId type = -1;
   FunId fun = -1; // for method
+  int prop_idx = -1; // for field or variant
   TExpr left;
   Token name;
 };

@@ -11,6 +11,8 @@ struct CBuiltinInfo {
 };
 
 struct CEnumInfo {
+  std::string enum_mangled_name;
+  std::string union_mangled_name;
   std::vector<std::string> variant_names;
 };
 

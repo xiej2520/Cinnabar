@@ -1,0 +1,22 @@
+fun main() {
+  var s1 S
+  let s2 S
+  s1.a = 40
+  s1.b = 6.4
+  s2.a = 1
+  s2.b = 4.5
+  
+  let ss1 SS
+  ss1.sa.a = 0
+  ss1.sb.b = 1.4
+}
+
+struct SS {
+  sa S
+  sb S
+}
+
+struct S {
+  a i32
+  b f64
+}

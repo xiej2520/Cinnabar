@@ -88,6 +88,8 @@ void CodegenC::emit_types() {
       [&](const TEnumInst &inst) {
         CTypeInfo ctype(mangle_name(inst.concrete_type.to_string()));
         CEnumInfo enum_info;
+        enum_info.enum_mangled_name = mangle_name(ctype.mangled_name + "__enum");
+        enum_info.union_mangled_name = mangle_name(ctype.mangled_name + "__union");
 
         for (auto &variant : inst.variants) {
           enum_info.variant_names.push_back(
@@ -142,7 +144,7 @@ void CodegenC::emit_enum_definition(TypeId id) {
   for (size_t j = 0; j < inst.variants.size(); j++) {
     emit_line("    {},", enum_info.variant_names[j]);
   }
-  emit_line("  }} {}__enum;", ctype.mangled_name);
+  emit_line("  }} {};", enum_info.enum_mangled_name);
   // emit union of variant
   emit_line("  union {{");
   for (const auto &variant : inst.variants) {
@@ -152,7 +154,7 @@ void CodegenC::emit_enum_definition(TypeId id) {
       emit_line("    {} {};", ctypes[variant_id].mangled_name, variant.first);
     }
   }
-  emit_line("  }} {}__union;", ctypes[id].mangled_name);
+  emit_line("  }} {};", enum_info.union_mangled_name);
   emit_line("}};");
 }
 
@@ -238,7 +240,11 @@ void CodegenC::emit_stmt(const TStmt &stmt) {
   // clang-format off
   std::visit(overload{
     [&](const std::unique_ptr<TAssign> &stmt) {
-      (void) stmt;
+      loc += emit_expr(stmt->lhs);
+      loc += ' ';
+      loc += to_string(stmt->op);
+      loc += ' ';
+      loc += emit_expr(stmt->rhs);
     },
     [&](const std::unique_ptr<TBreak> &) { emit_line("break"); },
     [&](const std::unique_ptr<TContinue> &) { emit_line("continue"); },
@@ -262,10 +268,6 @@ void CodegenC::emit_stmt(const TStmt &stmt) {
 
   loc += ';';
   emit_line("{}", loc);
-  //while (!temp_assign_targets.empty()) {
-  //  fmt::print("{}\n", temp_assign_targets.front());
-  //  temp_assign_targets.pop();
-  //}
   // clang-format on
 }
 
@@ -286,7 +288,7 @@ std::string CodegenC::emit_expr(const TExpr &expr) {
         }
       }
       else {
-        auto block_var_name = mangle_name("__cb_block_expr_val");
+        auto block_var_name = mangle_name("_cb_block_expr_val");
         emit_line("{} {};", ctypes[block->type].mangled_name, block_var_name);
         emit_line("{{");
         for (size_t i = 0; i + 1 < block->stmts.size(); i++) {
@@ -300,7 +302,23 @@ std::string CodegenC::emit_expr(const TExpr &expr) {
       
       return std::string{};
     },
-    [&](const std::unique_ptr<TDotRef> &) { return std::string{}; },
+    [&](const std::unique_ptr<TDotRef> &expr) {
+      if (expr->left.type() != tast.builtin_type_map.at("__fun")) {
+        CTypeInfo &type_info = ctypes[expr->left.type()];
+        auto res = "(" + emit_expr(expr->left) + ").";
+        if (CStructInfo *struct_info = std::get_if<CStructInfo>(&type_info.data)) {
+          res += struct_info->field_names[expr->prop_idx];
+        }
+        else if (CEnumInfo *enum_info = std::get_if<CEnumInfo>(&type_info.data)) {
+          res += enum_info->union_mangled_name + "." + enum_info->variant_names[expr->prop_idx];
+        }
+        else {
+          error("Cannot take dot ref of builtin type.");
+        }
+        return res;
+      }
+      error("Cannot take dot ref of a function.");
+    },
     [&](const std::unique_ptr<TFunCall> &expr) {
       auto res = emit_expr(expr->callee);
       res += '(';
@@ -353,7 +371,7 @@ std::string CodegenC::emit_expr(const TExpr &expr) {
       }
 
       // if has a value
-      auto if_var_name = mangle_name("__cb_if_expr_val");
+      auto if_var_name = mangle_name("_cb_if_expr_val");
       // if condition
       emit_line("{} {};", ctypes[expr->type].mangled_name, if_var_name);
       auto expr_condition = emit_expr(expr->branches.front()->condition);
