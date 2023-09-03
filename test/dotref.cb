@@ -9,6 +9,16 @@ fun main() {
   let ss1 SS
   ss1.sa.a = 0
   ss1.sb.b = 1.4
+  
+  let e E
+  e.ss.sa.a = 1
+  e.s.b = 4.5
+}
+
+enum E {
+  u
+  ss SS
+  s S
 }
 
 struct SS {

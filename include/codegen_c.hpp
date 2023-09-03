@@ -13,7 +13,12 @@ struct CBuiltinInfo {
 struct CEnumInfo {
   std::string enum_mangled_name;
   std::string union_mangled_name;
-  std::vector<std::string> variant_names;
+  struct VariantName {
+    std::string enum_variant_name;
+    TypeId type;
+    std::string union_variant_name;
+  };
+  std::vector<VariantName> variant_names;
 };
 
 struct CStructInfo {

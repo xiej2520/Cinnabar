@@ -22,10 +22,21 @@ const CStructInfo &CTypeInfo::struct_info() const {
 CodegenC::CodegenC(const TAST &tast) : tast(tast) {}
 
 std::string CodegenC::mangle_name(std::string_view name) {
+  // C and C++ reserve:
+  //   identifiers that begin with an underscore followed by an uppercase letter
+  //   identifiers in the global namespace that begin with an underscore
+  // C reserves names beginning with double underscore, C++ reserves names with
+  // a double underscore anywhere
   std::string res;
-  for (char c : name) {
-    if (c == '_' || isalnum(c)) {
+  if (name.empty() || name.front() == '_') {
+    res += "cb";
+  }
+  for (const char c : name) {
+    if (static_cast<bool>(isalnum(c))) {
       res += c;
+    } else if (res.back() == '_') {
+      // no double underscores
+      res += 'U';
     } else {
       res += '_';
     }
@@ -88,12 +99,16 @@ void CodegenC::emit_types() {
       [&](const TEnumInst &inst) {
         CTypeInfo ctype(mangle_name(inst.concrete_type.to_string()));
         CEnumInfo enum_info;
-        enum_info.enum_mangled_name = mangle_name(ctype.mangled_name + "__enum");
-        enum_info.union_mangled_name = mangle_name(ctype.mangled_name + "__union");
+        enum_info.enum_mangled_name = mangle_name(ctype.mangled_name + "_enum");
+        enum_info.union_mangled_name = mangle_name(ctype.mangled_name + "_union");
 
-        for (auto &variant : inst.variants) {
-          enum_info.variant_names.push_back(
-              mangle_name(fmt::format("__{}_enum_var_{}", ctype.mangled_name, variant.first)));
+        enum_info.variant_names.resize(inst.variants.size());
+        for (const auto &variant : inst.variants) {
+          enum_info.variant_names[variant.second.second] = {
+              mangle_name(fmt::format("_{}_enum_var_{}", ctype.mangled_name, variant.first)),
+              variant.second.first,
+              std::string(variant.first)
+              };
         }
         ctype.data = std::move(enum_info);
         ctypes.push_back(ctype);
@@ -137,21 +152,22 @@ void CodegenC::emit_type_forward_declare(std::string_view mangled_name) {
 void CodegenC::emit_enum_definition(TypeId id) {
   const CTypeInfo &ctype = ctypes[id];
   const CEnumInfo &enum_info = ctype.enum_info();
-  const TEnumInst &inst = std::get<TEnumInst>(tast.types[id].def);
   emit_line("struct {} {{", ctype.mangled_name);
   // emit enum of variant
   emit_line("  enum {{");
-  for (size_t j = 0; j < inst.variants.size(); j++) {
-    emit_line("    {},", enum_info.variant_names[j]);
+  for (const auto &variant : enum_info.variant_names) {
+    emit_line("    {},", variant.enum_variant_name);
   }
   emit_line("  }} {};", enum_info.enum_mangled_name);
   // emit union of variant
   emit_line("  union {{");
-  for (const auto &variant : inst.variants) {
-    if (variant.second.first == type_map["unit"]) {
+  for (const auto &variant : enum_info.variant_names) {
+    if (variant.type == type_map["unit"]) {
     } else {
-      TypeId variant_id = variant.second.first;
-      emit_line("    {} {};", ctypes[variant_id].mangled_name, variant.first);
+      emit_line(
+          "    {} {};", ctypes[variant.type].mangled_name,
+          variant.union_variant_name
+      );
     }
   }
   emit_line("  }} {};", enum_info.union_mangled_name);
@@ -226,7 +242,7 @@ void CodegenC::emit_function_definition(FunId id) {
   const TFunInst &inst = tast.functions[id];
   emit_function_signature(id);
   emit_line(" {{");
-  //buffer_stack.emplace_back();
+  // buffer_stack.emplace_back();
   for (auto &stmt : inst.body->stmts) {
     emit_stmt(stmt);
   }
@@ -310,7 +326,7 @@ std::string CodegenC::emit_expr(const TExpr &expr) {
           res += struct_info->field_names[expr->prop_idx];
         }
         else if (CEnumInfo *enum_info = std::get_if<CEnumInfo>(&type_info.data)) {
-          res += enum_info->union_mangled_name + "." + enum_info->variant_names[expr->prop_idx];
+          res += enum_info->union_mangled_name + "." + enum_info->variant_names[expr->prop_idx].union_variant_name;
         }
         else {
           error("Cannot take dot ref of builtin type.");

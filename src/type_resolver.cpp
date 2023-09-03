@@ -362,7 +362,7 @@ std::optional<TStmt> TypeResolver::resolve(Stmt &stmt) {
 
       if (res->lhs.type() != res->rhs.type()) {
         error(fmt::format("Left side {} has type {}, does not match right side {} type {}.",
-            stmt->lhs.s_expr(0, 2), res->lhs.type().value, stmt->rhs.s_expr(0, 2), res->rhs.type().value));
+            stmt->lhs.s_expr(0, 2), types[res->lhs.type().value].name(), stmt->rhs.s_expr(0, 2), types[res->rhs.type().value].name()));
       }
       return TStmt{std::move(res)};
     },
@@ -461,15 +461,22 @@ TExpr TypeResolver::resolve(Expr &expr) {
         [&](const BuiltinType &bt) {
           return builtin_type_map[bt.name.str];
         },
-        [&](const TEnumInst &) {
-          return builtin_type_map["unit"]; // for now
+        [&](const TEnumInst &inst) {
+          if (auto it = inst.variants.find(res->name.str); it != inst.variants.end()) {
+            res->prop_idx = it->second.second;
+            return it->second.first;
+          }
+          if (auto it = inst.methods.find(res->name.str); it != inst.methods.end()) {
+            return builtin_type_map["__fun"];
+          }
+          error(fmt::format("Name {} in dot ref not found.", expr->name.str));
         },
         [&](const TStructInst &inst) {
           if (auto it = inst.fields.find(res->name.str); it != inst.fields.end()) {
             res->prop_idx = it->second.second;
             return it->second.first;
           }
-          else if (auto it = inst.methods.find(res->name.str); it != inst.methods.end()) {
+          if (auto it = inst.methods.find(res->name.str); it != inst.methods.end()) {
             return builtin_type_map["__fun"];
           }
           error(fmt::format("Name {} in dot ref not found.", expr->name.str));
