@@ -65,6 +65,7 @@ struct TNamespace {
   TNamespace(TNamespace *parent);
 };
 
+// monostate because we need default value for node for TExpr construction
 using TExprVariant = std::variant<
     std::monostate,
     std::unique_ptr<TBinary>, std::unique_ptr<TBlock>, std::unique_ptr<TDotRef>,
@@ -154,7 +155,10 @@ struct TBreak {};
 struct TContinue {};
 
 struct TFor {};
-struct TReturn {};
+
+struct TReturn {
+  std::optional<TExpr> value;
+};
 
 struct TVarInst {
   Token name;

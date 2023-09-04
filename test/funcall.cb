@@ -1,11 +1,14 @@
-fun f() {}
+fun f() {
+  var i = 4
+}
 fun g(a i32, b i32) {
   g(4, 5)
+  return f()
 }
 fun main(a i32, b i64, c f64) {
   g(0, 1)
-  let e1 E = x
-  let e2 = E.n(4)
+  //let e1 E = x
+  //let e2 = E.n(4)
 }
 
 enum E {
@@ -15,3 +18,19 @@ enum E {
   n i32
   m f64
 }
+
+fun fib(i i32) i32 {
+  if i <= 1 { return i; }
+  return fib(i - 1) + fib(i - 2)
+  // return if i <= 1 { i } else { fib(i - 1) + fib(i - 2) }
+}
+fun fib2(i i32) i32 {
+  return if i <= 1 { i } else { fib2(i - 1) + fib2(i - 2) }
+}
+
+//fun a() {
+//  var x = 4
+//  fun b() {
+//    x += 6;
+//  }
+//}

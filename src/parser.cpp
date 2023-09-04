@@ -13,8 +13,7 @@ Parser::Parser(std::string source) : lexer(std::move(source)) {
   tokens = lexer.get_tokens();
 }
 
-template<typename T>
-void Parser::reserve_name(const Token &name) {
+template <typename T> void Parser::reserve_name(const Token &name) {
   Namespace *current = namespaces.back();
   if (current->names.contains(name.str)) {
     throw error_at(
@@ -24,17 +23,18 @@ void Parser::reserve_name(const Token &name) {
   current->names[name.str] = static_cast<T>(nullptr);
 }
 
-template<typename T>
-void Parser::link_name(const Token &name, T decl) {
+template <typename T> void Parser::link_name(const Token &name, T decl) {
   Namespace *current = namespaces.back();
-  if (!current->names.contains(name.str) || current->names[name.str] != DeclPtr(static_cast<T>(nullptr))) {
-    throw error_at(name, fmt::format("Internal error with linking name {}.", name.str));
+  if (!current->names.contains(name.str) ||
+      current->names[name.str] != DeclPtr(static_cast<T>(nullptr))) {
+    throw error_at(
+        name, fmt::format("Internal error with linking name {}.", name.str)
+    );
   }
   current->names[name.str] = decl;
 }
 
-template<typename T>
-void Parser::add_name(const Token &name, T decl) {
+template <typename T> void Parser::add_name(const Token &name, T decl) {
   Namespace *current = namespaces.back();
   if (current->names.contains(name.str)) {
     throw error_at(
@@ -207,13 +207,15 @@ std::unique_ptr<StructDecl> Parser::struct_declaration() {
     throw err;
   }
 
-  auto res =
-      std::make_unique<StructDecl>(name, GenericName{std::string(name.str), {}}, fields, std::move(methods), std::move(namesp));
+  auto res = std::make_unique<StructDecl>(
+      name, GenericName{std::string(name.str), {}}, fields, std::move(methods),
+      std::move(namesp)
+  );
   link_name<StructDecl *>(name, res.get());
 
   namespaces.pop_back();
   add_name<StructDecl *>(name, res.get());
-  
+
   for (auto &fun_ptr : res->methods) {
     fun_ptr->method_of = res.get();
   }
@@ -244,7 +246,8 @@ std::unique_ptr<EnumDecl> Parser::enum_declaration() {
       } else if (match(SEMICOLON)) {
         // continue
       } else {
-        TypedName variant{expect(IDENTIFIER, "Expected identifier."), GenericInst{"unit"}};
+        TypedName variant{
+            expect(IDENTIFIER, "Expected identifier."), GenericInst{"unit"}};
         if (!check(SEMICOLON)) {
           variant.gentype = type_name();
         }
@@ -260,13 +263,15 @@ std::unique_ptr<EnumDecl> Parser::enum_declaration() {
     throw err;
   }
 
-  auto res =
-      std::make_unique<EnumDecl>(name, GenericName{std::string(name.str), {}}, variants, std::move(methods), std::move(namesp));
+  auto res = std::make_unique<EnumDecl>(
+      name, GenericName{std::string(name.str), {}}, variants,
+      std::move(methods), std::move(namesp)
+  );
   link_name<EnumDecl *>(name, res.get());
 
   namespaces.pop_back();
   add_name<EnumDecl *>(name, res.get());
-  
+
   for (auto &fun_ptr : res->methods) {
     fun_ptr->method_of = res.get();
   }
@@ -291,7 +296,8 @@ std::unique_ptr<FunDecl> Parser::function_declaration() {
   try {
     if (!check(RIGHT_PAREN)) {
       do {
-        Token name = expect(IDENTIFIER, "Expected identifier for function parameter");
+        Token name =
+            expect(IDENTIFIER, "Expected identifier for function parameter");
         if (!check(IDENTIFIER)) {
           error_cur("Function parameter must have type specifier");
         }
@@ -312,7 +318,10 @@ std::unique_ptr<FunDecl> Parser::function_declaration() {
     namespaces.pop_back();
     throw err;
   }
-  auto res = std::make_unique<FunDecl>(name, GenericName{std::string(name.str), {}}, std::move(parameters), return_type, std::move(body));
+  auto res = std::make_unique<FunDecl>(
+      name, GenericName{std::string(name.str), {}}, std::move(parameters),
+      return_type, std::move(body)
+  );
   link_name<FunDecl *>(name, res.get());
 
   namespaces.pop_back();
@@ -341,18 +350,32 @@ Stmt Parser::statement() {
   try {
     if (match(STRUCT)) {
       return Stmt{Declaration{struct_declaration()}};
-    } else if (match(ENUM)) {
-      return Stmt{Declaration{enum_declaration()}};
-    } else if (match(FUN)) {
-      return Stmt{Declaration{function_declaration()}};
-    } else if (match({LET, VAR})) {
-      return Stmt{Declaration{variable_declaration()}};
-    } else if (match(SEMICOLON)) {
-      return Stmt{std::monostate{}};
-    } else if (match(FOR)) {
-    } else {
-      return expression_statement();
     }
+    if (match(ENUM)) {
+      return Stmt{Declaration{enum_declaration()}};
+    }
+    if (match(FUN)) {
+      return Stmt{Declaration{function_declaration()}};
+    }
+    if (match({LET, VAR})) {
+      return Stmt{Declaration{variable_declaration()}};
+    }
+    if (match(SEMICOLON)) {
+      return Stmt{std::monostate{}};
+    }
+    if (match(WHILE)) {
+      error_prev("Currently does not support while loops.");
+    }
+    if (match(FOR)) {
+      error_prev("Currently does not support for loops.");
+    }
+    if (match(RETURN)) {
+      if (match(SEMICOLON)) {
+        return Stmt{std::make_unique<Return>(std::nullopt)};
+      }
+      return Stmt{std::make_unique<Return>(expression_bp(0))};
+    }
+    return expression_statement();
   } catch (ParseError &err) {
     synchronize();
   }
@@ -429,10 +452,9 @@ Expr Parser::expression_bp(int min_bp) {
         to_unaryop(token.lexeme),
         expression_bp(prefix_binding_power(token.lexeme))
     )};
-  }
-  else {
+  } else {
     switch (token.lexeme) {
-      // clang-format off
+    // clang-format off
       case TRUE: lhs = Expr{std::make_unique<Literal>(true)}; break;
       case FALSE: lhs = Expr{std::make_unique<Literal>(false)}; break;
       case INTEGER: lhs = Expr{std::make_unique<Literal>(std::stoi(std::string(token.str)))}; break;
@@ -623,12 +645,14 @@ AST Parser::parse() {
   std::vector<std::unique_ptr<BuiltinType>> builtin_types;
 
   for (auto name : default_builtin_types) {
-    //if (globals.names.contains(name)) {
-    //  fmt::print(stderr, "Globals contained name '{}' matching builtin.\n",
-    //name); abort();
-    //}
-    builtin_types.emplace_back(std::make_unique<BuiltinType>(name));
-    add_name<BuiltinType *>(builtin_types.back()->name, builtin_types.back().get());
+    // if (globals.names.contains(name)) {
+    //   fmt::print(stderr, "Globals contained name '{}' matching builtin.\n",
+    // name); abort();
+    // }
+    builtin_types.emplace_back(std::make_unique<BuiltinType>(std::string(name)));
+    add_name<BuiltinType *>(
+        builtin_types.back()->name, builtin_types.back().get()
+    );
   }
 
   while (!is_at_end()) {

@@ -14,7 +14,7 @@
 
 namespace cinnabar {
 
-extern std::vector<std::string> default_builtin_types;
+extern const std::vector<std::string_view> default_builtin_types;
 
 // statements
 struct Stmt;
@@ -262,7 +262,11 @@ struct Expression {
 };
 
 struct For {};
-struct Return {};
+
+struct Return {
+  std::optional<Expr> value;
+};
+
 struct While {};
 
 using StmtVariant = std::variant<

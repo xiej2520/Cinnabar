@@ -1,0 +1,10 @@
+var a i32 = 4
+
+fun f() {
+  a = 5
+  var b = 0
+  fun g() {
+    a = 6 // good
+    b = 1 // fail
+  }
+}

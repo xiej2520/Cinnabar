@@ -9,7 +9,10 @@ namespace cinnabar {
 
 TypeResolver::PushNamespace
 TypeResolver::push_namespace(Namespace *namesp, TNamespace *tnamesp) {
-  return PushNamespace(*this, namesp, tnamesp);
+  return {this, namesp, tnamesp};
+}
+TypeResolver::PushFun TypeResolver::push_fun(TFunInst *fun, TNamespace *fun_tnamesp) {
+  return {this, fun, fun_tnamesp};
 }
 
 TypeResolver::TypeResolver(AST &ast) : ast(ast) {}
@@ -90,12 +93,17 @@ const TFunInst &TypeResolver::get_fun(FunId id) {
   return functions.at(id);
 }
 
-TVarInst *TypeResolver::get_var(std::string_view name) {
-  auto tnamesp = cur_tnamesp;
-  for (; tnamesp != nullptr; tnamesp = tnamesp->parent) {
-    if (tnamesp->variables.contains(name)) {
-      return tnamesp->variables[name];
+TVarInst *TypeResolver::get_var_local_global(std::string_view name) {
+  for (auto tnamesp = cur_tnamesp; tnamesp != nullptr; tnamesp = tnamesp->parent) {
+    if (auto it = tnamesp->variables.find(name); it != tnamesp->variables.end()) {
+      return it->second;
     }
+    if (tnamesp == cur_fun_tnamesp) {
+      break; // reached function namespace
+    }
+  }
+  if (auto it = root_tnamesp->variables.find(name); it != root_tnamesp->variables.end()) {
+    return it->second;
   }
   error(fmt::format("Variable {} not found.", name));
 }
@@ -172,7 +180,7 @@ TypeId TypeResolver::add_type(
   }
   currently_creating.insert(type_name);
 
-  TypeId res = types.size();
+  TypeId res = static_cast<int>(types.size());
   // clang-format off
   std::visit(overload{
     [&](BuiltinType *decl) {
@@ -231,7 +239,7 @@ TypeId TypeResolver::add_type(
 FunId TypeResolver::add_fun(
     const GenericInst &fun, FunDecl *decl, TNamespace *parent_tnamesp
 ) {
-  FunId res = functions.size();
+  FunId res = static_cast<int>(functions.size());
 
   functions.push_back(TFunInst{fun, {}, {}, -1, nullptr});
   // functions changes size - do not take reference
@@ -248,12 +256,13 @@ FunId TypeResolver::add_fun(
 
   auto p = push_namespace(decl->body->namesp.get(), block_namesp.get());
 
-  for (size_t i = 0; i < decl->params.size(); i++) {
-    functions[res].params.push_back(resolve(*decl->params[i]));
+  for (auto &param : decl->params) {
+    functions[res].params.push_back(resolve(*param));
   }
 
   functions[res].return_type = get_typeid(decl->return_type);
 
+  auto f = push_fun(&functions[res], block_namesp.get());
   functions[res].body = resolve(*decl->body, std::move(block_namesp));
 
   return res;
@@ -332,8 +341,8 @@ TypeResolver::find_binary_op(BinaryOp op, TypeId lhs_type, TypeId rhs_type) {
 // clang-format off
 std::optional<TStmt> TypeResolver::resolve(Stmt &stmt) {
   return std::visit(overload{
-    [&](std::monostate) -> std::optional<TStmt>  { return std::nullopt; },
-    [&](std::unique_ptr<Assign> &stmt) -> std::optional<TStmt>  {
+    [&](std::monostate) -> std::optional<TStmt> { return std::nullopt; },
+    [&](std::unique_ptr<Assign> &stmt) -> std::optional<TStmt> {
       auto res = std::make_unique<TAssign>();
       res->op = stmt->op;
       res->lhs = resolve(stmt->lhs);
@@ -366,8 +375,8 @@ std::optional<TStmt> TypeResolver::resolve(Stmt &stmt) {
       }
       return TStmt{std::move(res)};
     },
-    [&](std::unique_ptr<Break> &) -> std::optional<TStmt>  { return TStmt{std::make_unique<TBreak>()}; },
-    [&](std::unique_ptr<Continue> &) -> std::optional<TStmt>  { return TStmt{std::make_unique<TContinue>()}; },
+    [&](std::unique_ptr<Break> &) -> std::optional<TStmt> { return TStmt{std::make_unique<TBreak>()}; },
+    [&](std::unique_ptr<Continue> &) -> std::optional<TStmt> { return TStmt{std::make_unique<TContinue>()}; },
     [&](Declaration &stmt) -> std::optional<TStmt> {
       auto res = resolve(stmt);
       if (res.has_value()) {
@@ -378,9 +387,28 @@ std::optional<TStmt> TypeResolver::resolve(Stmt &stmt) {
     [&](std::unique_ptr<Expression> &stmt) -> std::optional<TStmt>  {
       return TStmt{resolve(stmt->expr)};
     },
-    [&](std::unique_ptr<For> &) -> std::optional<TStmt>  { return std::nullopt; },
-    [&](std::unique_ptr<Return> &) -> std::optional<TStmt>  { return std::nullopt; },
-    [&](std::unique_ptr<While> &) -> std::optional<TStmt>  { return std::nullopt; },
+    [&](std::unique_ptr<For> &) -> std::optional<TStmt> { return std::nullopt; },
+    [&](std::unique_ptr<Return> &stmt) -> std::optional<TStmt> {
+      auto res = std::make_unique<TReturn>();
+      if (stmt->value.has_value()) {
+        res->value = resolve(stmt->value.value());
+      }
+      else {
+        res->value = std::nullopt;
+      }
+      // expect no return expr
+      if (cur_fun->return_type == builtin_type_map.at("unit")) {
+        if (res->value.has_value() && res->value.value().type() != builtin_type_map.at("unit")) {
+          error(builtin_type_map.at("unit"), res->value.value().type());
+        }
+      }
+      // expect return expr matching function declaration
+      else if (!res->value.has_value() || res->value.value().type() != cur_fun->return_type) {
+        error(cur_fun->return_type, res->value.value().type());
+      }
+      return TStmt{std::move(res)};
+    },
+    [&](std::unique_ptr<While> &) -> std::optional<TStmt> { return std::nullopt; },
   }, stmt.node);
 }
 
@@ -512,7 +540,7 @@ TExpr TypeResolver::resolve(Expr &expr) {
       }
       // dotref to function callable (method)
       else if (res->callee.is<std::unique_ptr<TDotRef>>()) {
-        TDotRef &dot = *res->callee.as<std::unique_ptr<TDotRef>>();
+        const TDotRef &dot = *res->callee.as<std::unique_ptr<TDotRef>>();
         if (dot.fun == -1) {
           error("Field is not callable");
         }
@@ -524,7 +552,7 @@ TExpr TypeResolver::resolve(Expr &expr) {
       }
       
       // check arity
-      auto &fun_inst = get_fun(res->fun);
+      const auto &fun_inst = get_fun(res->fun);
       if (fun_inst.params.size() != expr->args.size()) {
         error("Function declaration has different arity than function call.");
       }
@@ -580,7 +608,7 @@ TExpr TypeResolver::resolve(Expr &expr) {
         [&](double)  { return builtin_type_map["f64"]; },
         [&](bool)    { return builtin_type_map["bool"]; },
         [&](char)    { return builtin_type_map["char"]; },
-        [&](std::string) { return builtin_type_map["Span[char]"]; },
+        [&](const std::string &) { return builtin_type_map["Span[char]"]; },
       }, res->val);
       
       return TExpr{std::move(res)};
@@ -603,6 +631,10 @@ TExpr TypeResolver::resolve(Expr &expr) {
         res->type = builtin_type_map["__fun"];
       }
       else if (TVarInst **var_inst = std::get_if<TVarInst *>(&res->decl)) {
+        TVarInst *correct_var = get_var_local_global(expr->name.str);
+        if (*var_inst != correct_var) {
+          error(fmt::format("Function referred to nonlocal variable which was not a global."));
+        }
         res->type = (*var_inst)->type;
       }
       else {
@@ -650,7 +682,8 @@ TAST TypeResolver::resolve() {
 
   cur_ast_namesp = ast.globals.get();
   auto root_namesp = std::make_unique<TNamespace>(nullptr);
-  cur_tnamesp = root_namesp.get();
+  root_tnamesp = root_namesp.get();
+  cur_tnamesp = root_tnamesp;
 
   TAST tast;
 
@@ -660,7 +693,7 @@ TAST TypeResolver::resolve() {
     builtin_type_map[name] = get_typeid(GenericInst{name});
   }
 
-  std::vector<std::string_view> numeric_type_names = {
+  const std::vector<std::string_view> numeric_type_names = {
       "i8",  "i16", "i32", "i64", "u8",   "u16",
       "u32", "u64", "f32", "f64", "char",
   };

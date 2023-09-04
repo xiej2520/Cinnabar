@@ -9,7 +9,7 @@ using std::vector;
 
 using enum Lexeme;
 
-std::vector<std::string> default_builtin_types = {
+const std::vector<std::string_view> default_builtin_types = {
     "__fun", // for type resolution purposes
     "unit",      "i8",  "i16",    "i32",  "i64",     "u8",
     "u16",       "u32", "u64",    "f32",  "f64",     "char",
@@ -19,11 +19,9 @@ std::vector<std::string> default_builtin_types = {
 };
 
 BuiltinType::BuiltinType(std::string name)
-    : name_str(name), name(name_str, IDENTIFIER, 0, 0) {}
+    : name_str(std::move(name)), name(name_str, IDENTIFIER, 0, 0) {}
 
-bool GenericName::is_concrete() const {
-  return params.empty();
-}
+bool GenericName::is_concrete() const { return params.empty(); }
 
 GenericInst::GenericInst(std::string_view base_name) : base_name(base_name) {}
 GenericInst::GenericInst(std::string_view base_name, vector<GenericInst> args)
@@ -41,9 +39,7 @@ std::string GenericInst::to_string() const {
   return res;
 }
 
-bool GenericInst::is_concrete() const {
-  return args.empty();
-}
+bool GenericInst::is_concrete() const { return args.empty(); }
 
 Namespace::Namespace(Namespace *parent) : parent(parent) {}
 
@@ -104,25 +100,25 @@ Declaration::Declaration(DeclVariant decl) : decl(std::move(decl)) {}
 
 // declaration statements
 EnumDecl::EnumDecl(
-    Token name, GenericName name_param, vector<TypedName> variants, vector<unique_ptr<FunDecl>> methods,
-    unique_ptr<Namespace> namesp
+    Token name, GenericName name_param, vector<TypedName> variants,
+    vector<unique_ptr<FunDecl>> methods, unique_ptr<Namespace> namesp
 )
-    : name(name), name_param(std::move(name_param)), variants(variants), methods(std::move(methods)),
-      namesp(std::move(namesp)) {}
+    : name(name), name_param(std::move(name_param)), variants(variants),
+      methods(std::move(methods)), namesp(std::move(namesp)) {}
 
 FunDecl::FunDecl(
-    Token name, GenericName name_param, vector<unique_ptr<VarDecl>> params, GenericInst return_type,
-    unique_ptr<Block> body
+    Token name, GenericName name_param, vector<unique_ptr<VarDecl>> params,
+    GenericInst return_type, unique_ptr<Block> body
 )
     : name(name), name_param(std::move(name_param)), params(std::move(params)),
       return_type(std::move(return_type)), body(std::move(body)) {}
 
 StructDecl::StructDecl(
-    Token name, GenericName name_param, vector<TypedName> fields, vector<unique_ptr<FunDecl>> methods,
-    unique_ptr<Namespace> namesp
+    Token name, GenericName name_param, vector<TypedName> fields,
+    vector<unique_ptr<FunDecl>> methods, unique_ptr<Namespace> namesp
 )
-    : name(name), name_param(std::move(name_param)), fields(fields), methods(std::move(methods)),
-      namesp(std::move(namesp)) {}
+    : name(name), name_param(std::move(name_param)), fields(fields),
+      methods(std::move(methods)), namesp(std::move(namesp)) {}
 
 VarDecl::VarDecl(
     Token name, std::optional<GenericInst> type_specifier,
@@ -249,7 +245,13 @@ std::string Stmt::s_expr(int cur, int ind) {
     [&](Declaration &stmt) { return stmt.s_expr(cur, ind); },
     [&](unique_ptr<Expression> &stmt) { return stmt->expr.s_expr(cur, ind); },
     [&](unique_ptr<For> &) { return fmt::format(""); },
-    [&](unique_ptr<Return> &) { return fmt::format("{:{}}Return", cur, ind); },
+    [&](unique_ptr<Return> &stmt) {
+      if (stmt->value.has_value()) {
+        return fmt::format("{:{}}(Return\n{}\n{:{}})\n", "", cur,
+            stmt->value.value().s_expr(cur+ind, ind), "", cur);
+      }
+      return fmt::format("{:{}}(Return)\n", "", cur);
+    },
     [&](unique_ptr<While> &) { return fmt::format(""); },
   },
   node);

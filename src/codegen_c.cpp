@@ -268,7 +268,13 @@ void CodegenC::emit_stmt(const TStmt &stmt) {
       loc += emit_expr(expr);
     },
     [&](const std::unique_ptr<TFor> &) { },
-    [&](const std::unique_ptr<TReturn> &) { },
+    [&](const std::unique_ptr<TReturn> &stmt) {
+      loc += "return";
+      if (stmt->value.has_value()) {
+        loc += " ";
+        loc += emit_expr(stmt->value.value());
+      }
+    },
     [&](const std::unique_ptr<TVarInst> &stmt) {
       auto mangled_type = type_name(stmt->type);
       loc += mangled_type;

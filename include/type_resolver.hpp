@@ -9,18 +9,37 @@ namespace cinnabar {
 
 struct TypeResolver {
   class PushNamespace {
-    TypeResolver &tr;
+    TypeResolver *tr;
     Namespace *prev_namesp;
     TNamespace *prev_tnamesp;
   public:
-    inline PushNamespace(TypeResolver &tr, Namespace *namesp, TNamespace *tnamesp):
-        tr(tr), prev_namesp(tr.cur_ast_namesp), prev_tnamesp(tr.cur_tnamesp) {
-      tr.cur_ast_namesp = namesp;
-      tr.cur_tnamesp = tnamesp;
+    inline PushNamespace(TypeResolver *tr, Namespace *namesp, TNamespace *tnamesp):
+        tr(tr), prev_namesp(tr->cur_ast_namesp), prev_tnamesp(tr->cur_tnamesp) {
+      tr->cur_ast_namesp = namesp;
+      tr->cur_tnamesp = tnamesp;
     }
-    ~PushNamespace() {
-      tr.cur_ast_namesp = prev_namesp;
-      tr.cur_tnamesp = prev_tnamesp;
+    PushNamespace(const PushNamespace &) = delete;
+    PushNamespace(const PushNamespace &&) = delete;
+    PushNamespace operator=(const PushNamespace &) = delete;
+    PushNamespace operator=(const PushNamespace &&) = delete;
+    inline ~PushNamespace() {
+      tr->cur_ast_namesp = prev_namesp;
+      tr->cur_tnamesp = prev_tnamesp;
+    }
+  };
+  class PushFun {
+    TypeResolver *tr;
+    TFunInst *prev_fun;
+    TNamespace *prev_fun_tnamesp;
+  public:
+    inline PushFun(TypeResolver *tr, TFunInst *new_fun, TNamespace *new_fun_tnamesp):
+        tr(tr), prev_fun(tr->cur_fun), prev_fun_tnamesp(tr->cur_fun_tnamesp) {
+      tr->cur_fun = new_fun;
+      tr->cur_fun_tnamesp = new_fun_tnamesp;
+    }
+    inline ~PushFun() {
+      tr->cur_fun = prev_fun;
+      tr->cur_fun_tnamesp = prev_fun_tnamesp;
     }
   };
 
@@ -33,13 +52,19 @@ struct TypeResolver {
   std::vector<std::unique_ptr<BuiltinType>> builtin_types;
   std::unordered_map<std::string_view, TypeId> builtin_type_map;
   
-  Namespace *cur_ast_namesp;
-  TNamespace *cur_tnamesp;
+  Namespace *cur_ast_namesp = nullptr;
+  TNamespace *cur_tnamesp = nullptr;
+  
+  TNamespace *root_tnamesp = nullptr;
+  
+  TFunInst *cur_fun = nullptr;
+  TNamespace *cur_fun_tnamesp = nullptr;
 
   // avoid cycles
   std::unordered_set<std::string> currently_creating;
   
   PushNamespace push_namespace(Namespace *namesp, TNamespace *tnamesp);
+  PushFun push_fun(TFunInst *fun, TNamespace *fun_tnamesp);
 
   TypeResolver(AST &ast);
 
@@ -49,7 +74,8 @@ struct TypeResolver {
   FunId get_funid(const GenericInst &gentype);
   const TFunInst &get_fun(FunId id);
 
-  TVarInst *get_var(std::string_view name);
+  TVarInst *get_var_local_global(std::string_view name);
+
   DeclaredName get_decl(const GenericInst &geninst);
 
   TypeId find_unary_op(UnaryOp op, TypeId operand_type);
