@@ -357,7 +357,16 @@ TypeId TypeResolver::find_unary_op(UnaryOp op, TypeId operand_type) {
     }
     return operand_type;
   case UnaryOp::REF:
-  case UnaryOp::DEREF:
+    return get_typeid(GenericInst{
+        "Ref", std::vector<GenericInst>{{types[operand_type].name()}}});
+  case UnaryOp::DEREF: {
+    const TTypeInst &type = types[operand_type];
+    if (const TBuiltinType *bt = std::get_if<TBuiltinType>(&type.def);
+        bt != nullptr && bt->args.index() == TBuiltinEnum::Ref) {
+      return std::get<TBuiltinEnum::Ref>(bt->args);
+    }
+    error(fmt::format("Tried to deref a non-Ref type: {}", operand_type.value));
+  }
   default:
     error(fmt::format(
         "Invalid unary operation: {} {}\n", to_string(op), operand_type.value

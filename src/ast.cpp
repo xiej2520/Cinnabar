@@ -226,7 +226,7 @@ std::string Declaration::s_expr(int cur, int ind) {
         res.append(decl->initializer.value().s_expr(cur + ind, ind));
         res.append(fmt::format("{:{}}", "", cur));
       }
-      res += '\n';
+      res += ")\n";
       return res;
     }},
   decl);

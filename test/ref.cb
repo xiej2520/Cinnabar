@@ -1,7 +1,10 @@
 fun main() i32 {
   let x = 4
-  let r Ref[i32]
-  //let rx = __ref(x)
+
+  let rx Ref[i32   ] = __ref(x)
+  
+  let drx = __deref(rx)
+
   
   let vr VarRef[isize]
   
@@ -10,5 +13,8 @@ fun main() i32 {
   
   let a Array[i32, 8]
   
+  let aaa Array[Array[Array[i32, 8], 4], 10]
 
+  //aaa[9][3][7]
+  //let aaa Array[10 * Array[4 * Array[i32 * 4]]]
 }

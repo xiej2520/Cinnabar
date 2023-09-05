@@ -139,9 +139,9 @@ GenericInst Parser::type_name() {
     if (name.str == "Array") {
       params.push_back(type_name());
       match(COMMA);
-      params.push_back(GenericInst{expect(INTEGER, "Expect integer parameter for Array[T, N].").str});
-    }
-    else {
+      params.push_back(GenericInst{
+          expect(INTEGER, "Expect integer parameter for Array[T, N].").str});
+    } else {
       do {
         params.push_back(type_name());
       } while (match(COMMA));
@@ -519,9 +519,26 @@ Expr Parser::expression_bp(int min_bp) {
       case LEFT_PAREN: {
         advance();
         std::vector<Expr> args = argument_list();
-        lhs = Expr{std::make_unique<FunCall>(
-            Expr{std::move(lhs.value())}, std::move(args)
-        )};
+        auto *var = std::get_if<std::unique_ptr<Variable>>(&lhs.value().node);
+        if (var != nullptr && (*var)->name.str == "__ref") {
+          if (args.size() != 1) {
+            error_prev("__ref can only be called on one argument.");
+          }
+          lhs = Expr{std::make_unique<Unary>(
+              UnaryOp::REF, Expr{std::move(args[0])}
+          )};
+        } else if (var != nullptr && (*var)->name.str == "__deref") {
+          if (args.size() != 1) {
+            error_prev("__deref can only be called on one argument.");
+          }
+          lhs = Expr{std::make_unique<Unary>(
+              UnaryOp::DEREF, Expr{std::move(args[0])}
+          )};
+        } else {
+          lhs = Expr{std::make_unique<FunCall>(
+              Expr{std::move(lhs.value())}, std::move(args)
+          )};
+        }
         break;
       }
       case DOT: {
