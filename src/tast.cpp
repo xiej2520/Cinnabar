@@ -40,16 +40,26 @@ TypeId TExpr::type() {
   // clang-format on
 }
 
-std::string TTypeInst::name() const {
-  // clang-format off
+// clang-format off
+[[nodiscard]] std::string TTypeInst::name() const {
   return std::visit(overload{
     [&](const Primitive &p) { return std::string(p.name.str); },
     [&](const TBuiltinType &bt) { return bt.concrete_type.to_string(); },
     [&](const TEnumInst &inst) { return inst.concrete_type.to_string(); },
     [&](const TStructInst &inst) { return inst.concrete_type.to_string(); }
   }, def);
-  // clang-format on
 }
+
+[[nodiscard]] GenericInst TTypeInst::concrete_type() const {
+  return std::visit(overload{
+    [&](const Primitive &p) { return GenericInst{p.name.str}; },
+    [&](const TBuiltinType &bt) { return bt.concrete_type; },
+    [&](const TEnumInst &inst) { return inst.concrete_type; },
+    [&](const TStructInst &inst) { return inst.concrete_type; }
+  }, def);
+}
+// clang-format on
+
 
 std::string TFunInst::name() const {
   return concrete_fun.to_string();

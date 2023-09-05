@@ -47,6 +47,7 @@ struct TypeResolver {
 
   std::vector<TFunInst> functions;
   std::vector<TTypeInst> types;
+  std::vector<TypeId> type_topo_order;
   std::vector<std::unique_ptr<BuiltinType>> builtin_types;
   std::unordered_map<std::string_view, TypeId> primitive_map;
   std::unordered_set<TypeId> numeric_primitive_ids;

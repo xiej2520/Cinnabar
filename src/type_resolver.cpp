@@ -304,6 +304,7 @@ TypeId TypeResolver::add_type(
   }, decl);
   // clang-format on
   parent_tnamesp->concrete_types[type_name] = res;
+  type_topo_order.push_back(res);
   return res;
 }
 
@@ -358,7 +359,7 @@ TypeId TypeResolver::find_unary_op(UnaryOp op, TypeId operand_type) {
     return operand_type;
   case UnaryOp::REF:
     return get_typeid(GenericInst{
-        "Ref", std::vector<GenericInst>{{types[operand_type].name()}}});
+        "Ref", std::vector<GenericInst>{types[operand_type].concrete_type()}});
   case UnaryOp::DEREF: {
     const TTypeInst &type = types[operand_type];
     if (const TBuiltinType *bt = std::get_if<TBuiltinType>(&type.def);
@@ -758,6 +759,7 @@ std::unique_ptr<TBlock> TypeResolver::resolve(Block &block) {
 TAST TypeResolver::resolve() {
   functions.clear();
   types.clear();
+  type_topo_order.clear();
   builtin_types.clear();
   primitive_map.clear();
 
@@ -789,6 +791,7 @@ TAST TypeResolver::resolve() {
 
   tast.functions = std::move(functions);
   tast.types = std::move(types);
+  tast.type_topo_order = std::move(type_topo_order);
   tast.globals = std::move(globals);
   tast.root_namesp = std::move(root_namesp);
   tast.primitive_map = std::move(primitive_map);

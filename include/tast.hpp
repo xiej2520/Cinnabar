@@ -224,7 +224,8 @@ struct TStructInst {
 struct TTypeInst {
   std::variant<Primitive, TBuiltinType, TEnumInst, TStructInst> def;
   
-  std::string name() const;
+  [[nodiscard]] std::string name() const;
+  [[nodiscard]] GenericInst concrete_type() const;
   template <typename T> bool is() { return std::holds_alternative<T>(def); }
   template <typename T> T &as() { return std::get<T>(def); }
 };
@@ -233,6 +234,7 @@ struct TTypeInst {
 struct TAST {
   std::vector<TFunInst> functions;
   std::vector<TTypeInst> types;
+  std::vector<TypeId> type_topo_order;
   std::unordered_map<std::string_view, TypeId> primitive_map;
   
   std::vector<std::unique_ptr<TVarInst>> globals;

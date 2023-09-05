@@ -125,7 +125,7 @@ void CodegenC::emit_types() {
         CTypeInfo ctype(mangle_name(inst.concrete_type.to_string()));
         CStructInfo struct_info;
 
-        for (auto &field : inst.fields) {
+        for (const auto &field : inst.fields) {
           struct_info.field_names.push_back(std::string(field.first));
         }
         ctype.data = std::move(struct_info);
@@ -136,20 +136,20 @@ void CodegenC::emit_types() {
     // clang-format on
   }
 
-  for (size_t i = 0; i < num_types; i++) {
+  for (TypeId id : tast.type_topo_order) {
     // clang-format off
     std::visit(overload{
       [&](const CPrimitiveInfo &) { },
       [&](const CBuiltinInfo &) {
-        emit_builtin_definition(i);
+        emit_builtin_definition(id);
       },
       [&](const CEnumInfo &) {
-        emit_enum_definition(i);
+        emit_enum_definition(id);
       },
       [&](const CStructInfo &) {
-        emit_struct_definition(i);
+        emit_struct_definition(id);
       },
-    }, ctypes[i].data);
+    }, ctypes[id].data);
     // clang-format on
   }
 }
@@ -504,6 +504,7 @@ std::string CodegenC::generate() {
   out = "";
   emit_include("<stdint.h>");
   emit_include("<stdbool.h>");
+  emit_include("<sys/types.h>");
   emit_types();
   emit_functions();
 
