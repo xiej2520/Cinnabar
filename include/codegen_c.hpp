@@ -6,6 +6,10 @@
 
 namespace cinnabar {
 
+struct CPrimitiveInfo {
+
+};
+
 struct CBuiltinInfo {
 
 };
@@ -27,7 +31,7 @@ struct CStructInfo {
 
 struct CTypeInfo {
   std::string mangled_name;
-  std::variant<CBuiltinInfo, CEnumInfo, CStructInfo> data;
+  std::variant<CPrimitiveInfo, CBuiltinInfo, CEnumInfo, CStructInfo> data;
 
   const CEnumInfo &enum_info() const;
   const CStructInfo &struct_info() const;
@@ -69,7 +73,8 @@ class CodegenC {
   void emit_types();
   void emit_type_forward_declare(std::string_view mangled_name);
 
-  // check type before calling
+  // check type and emit forward declare before emitting definition
+  void emit_builtin_definition(TypeId id);
   void emit_enum_definition(TypeId id);
   void emit_struct_definition(TypeId id);
   

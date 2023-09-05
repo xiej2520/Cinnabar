@@ -74,27 +74,33 @@ void CodegenC::emit_include(std::string_view file_name) {
 }
 
 void CodegenC::emit_types() {
-  int num_types = tast.types.size();
+  size_t num_types = tast.types.size();
   ctypes.reserve(num_types);
 
-  std::unordered_map<std::string_view, std::string> builtin_type_map = {
+  std::unordered_map<std::string_view, std::string> primitive_map = {
       {"__fun", ""},       {"unit", ""},        {"i8", "int8_t"},
       {"i16", "int16_t"},  {"i32", "int32_t"},  {"i64", "int64_t"},
       {"u8", "uint8_t"},   {"u16", "uint16_t"}, {"u32", "uint32_t"},
       {"u64", "uint64_t"}, {"f32", "float"},    {"f64", "double"},
-      {"char", "char"},    {"bool", "bool"},    {"Ref", ""},
-      {"VarRef", ""},      {"Span", ""},        {"VarSpan", ""},
-      {"Span[char]", ""},
+      {"char", "char"},    {"bool", "bool"},    {"isize", "ssize_t"},
+      {"usize", "size_t"},
   };
 
   // generate CTypes and emit forward declares
-  for (int i = 0; i < num_types; i++) {
+  for (size_t i = 0; i < num_types; i++) {
     const TTypeInst &type = tast.types[i];
     // clang-format off
     std::visit(overload{
-      [&](const BuiltinType &bt) {
-        ctypes.push_back(CTypeInfo(builtin_type_map[bt.name.str]));
-        type_map[bt.name.str] = i;
+      [&](const Primitive &p) {
+        CTypeInfo ctype(primitive_map.at(p.name.str));
+        ctype.data = CPrimitiveInfo{};
+        ctypes.push_back(ctype);;
+      },
+      [&](const TBuiltinType &bt) {
+        CTypeInfo ctype(mangle_name(bt.concrete_type.to_string()));
+        ctype.data = CBuiltinInfo{};
+        ctypes.push_back(ctype);;
+        emit_type_forward_declare(ctype.mangled_name);
       },
       [&](const TEnumInst &inst) {
         CTypeInfo ctype(mangle_name(inst.concrete_type.to_string()));
@@ -130,10 +136,13 @@ void CodegenC::emit_types() {
     // clang-format on
   }
 
-  for (int i = 0; i < num_types; i++) {
+  for (size_t i = 0; i < num_types; i++) {
     // clang-format off
     std::visit(overload{
-      [&](const CBuiltinInfo &) { },
+      [&](const CPrimitiveInfo &) { },
+      [&](const CBuiltinInfo &) {
+        emit_builtin_definition(i);
+      },
       [&](const CEnumInfo &) {
         emit_enum_definition(i);
       },
@@ -149,6 +158,42 @@ void CodegenC::emit_type_forward_declare(std::string_view mangled_name) {
   emit_line("typedef struct {0} {0};", mangled_name);
 }
 
+void CodegenC::emit_builtin_definition(TypeId id) {
+  const CTypeInfo &ctype = ctypes[id];
+  const TBuiltinType &bt = std::get<TBuiltinType>(tast.types[id].def);
+  emit_line("struct {} {{", ctype.mangled_name);
+  switch (bt.args.index()) {
+    case TBuiltinEnum::Ref: {
+      TypeId arg = std::get<TBuiltinEnum::Ref>(bt.args);
+      emit_line("  const {} *ptr;", ctypes[arg].mangled_name);
+    }
+    break;
+    case TBuiltinEnum::VarRef: {
+      TypeId arg = std::get<TBuiltinEnum::VarRef>(bt.args);
+      emit_line("  {} *ptr;", ctypes[arg].mangled_name);
+    }
+    break;
+    case TBuiltinEnum::Span: {
+      TypeId arg = std::get<TBuiltinEnum::Span>(bt.args);
+      emit_line("  const {} *ptr;", ctypes[arg].mangled_name);
+      emit_line("  size_t size;");
+    }
+    break;
+    case TBuiltinEnum::VarSpan: {
+      TypeId arg = std::get<TBuiltinEnum::VarSpan>(bt.args);
+      emit_line("  {} *ptr;", ctypes[arg].mangled_name);
+      emit_line("  size_t size;");
+    }
+    break;
+    case TBuiltinEnum::Array: {
+      auto [type_id, size] = std::get<TBuiltinEnum::Array>(bt.args);
+      emit_line("  {} data[{}];", ctypes[type_id].mangled_name, size);
+    }
+    break;
+  }
+  emit_line("}};");
+}
+
 void CodegenC::emit_enum_definition(TypeId id) {
   const CTypeInfo &ctype = ctypes[id];
   const CEnumInfo &enum_info = ctype.enum_info();
@@ -162,7 +207,7 @@ void CodegenC::emit_enum_definition(TypeId id) {
   // emit union of variant
   emit_line("  union {{");
   for (const auto &variant : enum_info.variant_names) {
-    if (variant.type == type_map["unit"]) {
+    if (variant.type == tast.primitive_map.at("unit")) {
     } else {
       emit_line(
           "    {} {};", ctypes[variant.type].mangled_name,
@@ -210,7 +255,7 @@ void CodegenC::emit_functions() {
 void CodegenC::emit_function_signature(FunId id) {
   std::string declaration;
   const TFunInst &inst = tast.functions[id];
-  if (inst.return_type == tast.builtin_type_map.at("unit")) {
+  if (inst.return_type == tast.primitive_map.at("unit")) {
     declaration += "void";
   } else {
     declaration += ctypes[inst.return_type].mangled_name;
@@ -304,7 +349,7 @@ std::string CodegenC::emit_expr(const TExpr &expr) {
           emit_expr(expr->right));
     },
     [&](const std::unique_ptr<TBlock> &block) -> std::string { 
-      if (block->type == tast.builtin_type_map.at("unit")) {
+      if (block->type == tast.primitive_map.at("unit")) {
         for (auto &stmt : block->stmts) {
           emit_stmt(stmt);
         }
@@ -325,7 +370,7 @@ std::string CodegenC::emit_expr(const TExpr &expr) {
       return std::string{};
     },
     [&](const std::unique_ptr<TDotRef> &expr) {
-      if (expr->left.type() != tast.builtin_type_map.at("__fun")) {
+      if (expr->left.type() != tast.primitive_map.at("__fun")) {
         CTypeInfo &type_info = ctypes[expr->left.type()];
         auto res = "(" + emit_expr(expr->left) + ").";
         if (CStructInfo *struct_info = std::get_if<CStructInfo>(&type_info.data)) {
@@ -357,7 +402,7 @@ std::string CodegenC::emit_expr(const TExpr &expr) {
     },
     [&](const std::unique_ptr<TIf> &expr) {
       // does not have value
-      if (expr->type == tast.builtin_type_map.at("unit")) {
+      if (expr->type == tast.primitive_map.at("unit")) {
         auto expr_condition = emit_expr(expr->branches.front()->condition);
         emit_line("if ({}) {{", expr_condition);
         for (auto &stmt : expr->branches.front()->block->stmts) {

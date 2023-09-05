@@ -45,12 +45,11 @@ struct TypeResolver {
 
   AST &ast;
 
-  std::unordered_set<TypeId> builtin_numeric_types;
-  
   std::vector<TFunInst> functions;
   std::vector<TTypeInst> types;
   std::vector<std::unique_ptr<BuiltinType>> builtin_types;
-  std::unordered_map<std::string_view, TypeId> builtin_type_map;
+  std::unordered_map<std::string_view, TypeId> primitive_map;
+  std::unordered_set<TypeId> numeric_primitive_ids;
   
   Namespace *cur_ast_namesp = nullptr;
   TNamespace *cur_tnamesp = nullptr;

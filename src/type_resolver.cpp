@@ -2,16 +2,23 @@
 
 #include <functional>
 #include <ranges>
+#include <string>
 
 #include "fmt/core.h"
 
 namespace cinnabar {
 
+const std::vector<std::string_view> numeric_primitive_names = {
+    "i8",  "i16", "i32", "i64",  "u8",    "u16",   "u32",
+    "u64", "f32", "f64", "char", "isize", "usize",
+};
+
 TypeResolver::PushNamespace
 TypeResolver::push_namespace(Namespace *namesp, TNamespace *tnamesp) {
   return {this, namesp, tnamesp};
 }
-TypeResolver::PushFun TypeResolver::push_fun(TFunInst *fun, TNamespace *fun_tnamesp) {
+TypeResolver::PushFun
+TypeResolver::push_fun(TFunInst *fun, TNamespace *fun_tnamesp) {
   return {this, fun, fun_tnamesp};
 }
 
@@ -29,6 +36,12 @@ TypeId TypeResolver::get_typeid(const GenericInst &gentype) {
       auto gentype_str = gentype.to_string();
       // clang-format off
       return std::visit(overload{
+        [&](Primitive *decl) {
+          if (auto it = tnamesp->concrete_types.find(gentype_str); it != tnamesp->concrete_types.end()) {
+            return it->second;
+          }
+          return tnamesp->concrete_types[gentype_str] = add_type(gentype, decl, tnamesp);
+        },
         [&](BuiltinType *decl) {
           if (!tnamesp->concrete_types.contains(gentype_str)) {
             return tnamesp->concrete_types[gentype_str] = add_type(gentype, decl, tnamesp);
@@ -94,15 +107,18 @@ const TFunInst &TypeResolver::get_fun(FunId id) {
 }
 
 TVarInst *TypeResolver::get_var_local_global(std::string_view name) {
-  for (auto tnamesp = cur_tnamesp; tnamesp != nullptr; tnamesp = tnamesp->parent) {
-    if (auto it = tnamesp->variables.find(name); it != tnamesp->variables.end()) {
+  for (auto tnamesp = cur_tnamesp; tnamesp != nullptr;
+       tnamesp = tnamesp->parent) {
+    if (auto it = tnamesp->variables.find(name);
+        it != tnamesp->variables.end()) {
       return it->second;
     }
     if (tnamesp == cur_fun_tnamesp) {
       break; // reached function namespace
     }
   }
-  if (auto it = root_tnamesp->variables.find(name); it != root_tnamesp->variables.end()) {
+  if (auto it = root_tnamesp->variables.find(name);
+      it != root_tnamesp->variables.end()) {
     return it->second;
   }
   error(fmt::format("Variable {} not found.", name));
@@ -119,51 +135,49 @@ DeclaredName TypeResolver::get_decl(const GenericInst &geninst) {
        namesp = namesp->parent, tnamesp = tnamesp->parent) {
     if (namesp->names.contains(base_name)) {
       DeclPtr decl = namesp->names[base_name];
-      return std::visit(
-          overload{
-              [&](BuiltinType *decl) -> DeclaredName {
-                if (!tnamesp->concrete_types.contains(geninst_str)) {
-                  return tnamesp->concrete_types[geninst_str] =
-                             add_type(geninst, decl, tnamesp);
-                }
-                return tnamesp->concrete_types[geninst_str];
-              },
-              [&](EnumDecl *decl) -> DeclaredName {
-                if (!tnamesp->concrete_types.contains(geninst_str)) {
-                  return tnamesp->concrete_types[geninst_str] =
-                             add_type(geninst, decl, tnamesp);
-                }
-                return tnamesp->concrete_types[geninst_str];
-              },
-              [&](FunDecl *) -> DeclaredName {
-                if (!tnamesp->concrete_funs.contains(geninst_str)) {
-                  return tnamesp->concrete_funs[geninst_str] = add_fun(
-                             geninst, std::get<FunDecl *>(decl), tnamesp
-                         );
-                }
-                return tnamesp->concrete_funs[geninst_str];
-              },
-              [&](StructDecl *decl) -> DeclaredName {
-                if (!tnamesp->concrete_types.contains(geninst_str)) {
-                  return tnamesp->concrete_types[geninst_str] =
-                             add_type(geninst, decl, tnamesp);
-                }
-                return tnamesp->concrete_types[geninst_str];
-              },
-              [&](VarDecl *) -> DeclaredName {
-                if (!geninst.is_concrete()) {
-                  error("Internal error: Tried to search for variable with "
-                        "type parameter?");
-                } else if (!tnamesp->variables.contains(base_name)) {
-                  error(fmt::format(
-                      "Variable {} used before definition complete.", base_name
-                  ));
-                }
-                return tnamesp->variables[base_name];
-              },
-          },
-          decl
-      );
+      // clang-format off
+      return std::visit(overload{
+        [&](Primitive *) -> DeclaredName {
+          // all primitive types should be added at the beginning of resolving
+          return tnamesp->concrete_types[geninst_str];
+        },
+        [&](BuiltinType *decl) -> DeclaredName {
+          if (auto it = tnamesp->concrete_types.find(geninst_str); it != tnamesp->concrete_types.end()) {
+            return it->second;
+          }
+          return add_type(geninst, decl, tnamesp);
+        },
+        [&](EnumDecl *decl) -> DeclaredName {
+          if (!tnamesp->concrete_types.contains(geninst_str)) {
+            return add_type(geninst, decl, tnamesp);
+          }
+          return tnamesp->concrete_types[geninst_str];
+        },
+        [&](FunDecl *) -> DeclaredName {
+          if (!tnamesp->concrete_funs.contains(geninst_str)) {
+            return add_fun(geninst, std::get<FunDecl *>(decl), tnamesp);
+          }
+          return tnamesp->concrete_funs[geninst_str];
+        },
+        [&](StructDecl *decl) -> DeclaredName {
+          if (!tnamesp->concrete_types.contains(geninst_str)) {
+            return add_type(geninst, decl, tnamesp);
+          }
+          return tnamesp->concrete_types[geninst_str];
+        },
+        [&](VarDecl *) -> DeclaredName {
+          if (!geninst.is_concrete()) {
+            error("Internal error: Tried to search for variable with "
+                  "type parameter?");
+          } else if (!tnamesp->variables.contains(base_name)) {
+            error(fmt::format(
+                "Variable {} used before definition complete.", base_name
+            ));
+          }
+          return tnamesp->variables[base_name];
+        },
+      }, decl);
+      // clang-format on
     }
   }
   error(fmt::format("Base name {} not found.", base_name));
@@ -178,17 +192,73 @@ TypeId TypeResolver::add_type(
         "Cycle detected while instantiating types at {}.", type_name
     ));
   }
-  currently_creating.insert(type_name);
 
   TypeId res = static_cast<int>(types.size());
   // clang-format off
   std::visit(overload{
-    [&](BuiltinType *decl) {
+    [&](Primitive *decl) {
       parent_tnamesp->concrete_types[type_name] = res;
       types.push_back(TTypeInst{*decl});
     },
+    [&](BuiltinType *) {
+      parent_tnamesp->concrete_types[type_name] = res;
+      if (type.base_name == "Ref") {
+        if (type.args.size() != 1) {
+          error(fmt::format("Expected 1 arg for Ref[T], got {}.", type.args.size()));
+        }
+        types.push_back(TTypeInst{TBuiltinType{type, {}}});
+        types[res].as<TBuiltinType>().args.emplace<Ref>(get_typeid(type.args[0]));
+      }
+      else if (type.base_name == "VarRef") {
+        if (type.args.size() != 1) {
+          error(fmt::format("Expected 1 arg for VarRef[T], got {}.", type.args.size()));
+        }
+        types.push_back(TTypeInst{TBuiltinType{type, {}}});
+        types[res].as<TBuiltinType>().args.emplace<VarRef>(get_typeid(type.args[0]));
+      }
+      else if (type.base_name == "Span") {
+        if (type.args.size() != 1) {
+          error(fmt::format("Expected 1 arg for Span[T], got {}.", type.args.size()));
+        }
+        types.push_back(TTypeInst{TBuiltinType{type, {}}});
+        types[res].as<TBuiltinType>().args.emplace<Span>(get_typeid(type.args[0]));
+      }
+      else if (type.base_name == "VarSpan") {
+        if (type.args.size() != 1) {
+          error(fmt::format("Expected 1 arg for VarSpan[T], got {}.", type.args.size()));
+        }
+        types.push_back(TTypeInst{TBuiltinType{type, {}}});
+        types[res].as<TBuiltinType>().args.emplace<VarSpan>(get_typeid(type.args[0]));
+      }
+      else if (type.base_name == "Array") {
+        if (type.args.size() != 2) {
+          error(fmt::format(
+              "Expected 2 args for Array[T, N], got {}.", type.args.size()
+          ));
+        }
+        types.push_back(TTypeInst{TBuiltinType{type, {}}});
+        try {
+          types[res].as<TBuiltinType>().args.emplace<Array>(get_typeid(type.args[0]),
+          stoll(type.args[1].to_string()));
+        } catch (const std::invalid_argument &) {
+          std::get<Array>(types[res].as<TBuiltinType>().args
+          ) = {get_typeid(type.args[0]), std::stoll(type.args[1].to_string())};
+          error(fmt::format(
+              "Invalid size for Array[T, N]: {}", type.args[1].to_string()
+          ));
+        } catch (const std::out_of_range &) {
+          error(fmt::format(
+              "Size {} for Array[T, N] out of range", type.args[1].to_string()
+          ));
+        }
+      }
+      else {
+        error(fmt::format("Unexpected builtin type {}.", type.base_name));
+      }
+    },
     [&](EnumDecl *decl) {
       types.push_back(TTypeInst{TEnumInst{type, {}, std::make_unique<TNamespace>(parent_tnamesp), {}, {}}});
+      currently_creating.insert(type_name);
       // don't use reference, types will get resized
       auto p = push_namespace(decl->namesp.get(), types[res].as<TEnumInst>().namesp.get());
 
@@ -207,10 +277,11 @@ TypeId TypeResolver::add_type(
       }
       
       // add methods? later
-
+      currently_creating.erase(type_name);
     },
     [&](StructDecl *decl) {
       types.push_back(TTypeInst{TStructInst{type, {}, std::make_unique<TNamespace>(parent_tnamesp), {}, {}}});
+      currently_creating.insert(type_name);
       auto p = push_namespace(decl->namesp.get(), types[res].as<TStructInst>().namesp.get());
 
       parent_tnamesp->concrete_types[type_name] = res;
@@ -228,10 +299,10 @@ TypeId TypeResolver::add_type(
       }
       
       // add methods? later
+      currently_creating.erase(type_name);
     },
   }, decl);
   // clang-format on
-  currently_creating.erase(type_name);
   parent_tnamesp->concrete_types[type_name] = res;
   return res;
 }
@@ -272,14 +343,14 @@ TypeId TypeResolver::find_unary_op(UnaryOp op, TypeId operand_type) {
   switch (op) {
   case UnaryOp::PLUS:
   case UnaryOp::NEG:
-    if (!builtin_numeric_types.contains(operand_type)) {
+    if (!numeric_primitive_ids.contains(operand_type)) {
       error(fmt::format(
           "Invalid unary operation: {} {}\n", to_string(op), operand_type.value
       ));
     }
     return operand_type;
   case UnaryOp::NOT:
-    if (operand_type != builtin_type_map["bool"]) {
+    if (operand_type != primitive_map.at("bool")) {
       error(fmt::format(
           "Invalid unary operation: {} {}\n", to_string(op), operand_type.value
       ));
@@ -296,8 +367,8 @@ TypeId TypeResolver::find_unary_op(UnaryOp op, TypeId operand_type) {
 
 TypeId
 TypeResolver::find_binary_op(BinaryOp op, TypeId lhs_type, TypeId rhs_type) {
-  if (builtin_numeric_types.contains(lhs_type) &&
-      builtin_numeric_types.contains(rhs_type)) {
+  if (numeric_primitive_ids.contains(lhs_type) &&
+      numeric_primitive_ids.contains(rhs_type)) {
     if (lhs_type != rhs_type) {
       error(lhs_type, rhs_type);
     }
@@ -319,16 +390,15 @@ TypeResolver::find_binary_op(BinaryOp op, TypeId lhs_type, TypeId rhs_type) {
     case BinaryOp::GT:
     case BinaryOp::GTE:
     case BinaryOp::LTE:
-      return builtin_type_map["bool"];
+      return primitive_map.at("bool");
     default:;
     }
-  }
-  else if (lhs_type == builtin_type_map["bool"] && rhs_type == builtin_type_map["bool"]) {
+  } else if (lhs_type == primitive_map.at("bool") && rhs_type == primitive_map.at("bool")) {
     switch (op) {
     case BinaryOp::AND:
     case BinaryOp::OR:
     case BinaryOp::XOR:
-      return builtin_type_map["bool"];
+      return primitive_map.at("bool");
     default:;
     }
   }
@@ -397,9 +467,9 @@ std::optional<TStmt> TypeResolver::resolve(Stmt &stmt) {
         res->value = std::nullopt;
       }
       // expect no return expr
-      if (cur_fun->return_type == builtin_type_map.at("unit")) {
-        if (res->value.has_value() && res->value.value().type() != builtin_type_map.at("unit")) {
-          error(builtin_type_map.at("unit"), res->value.value().type());
+      if (cur_fun->return_type == primitive_map.at("unit")) {
+        if (res->value.has_value() && res->value.value().type() != primitive_map.at("unit")) {
+          error(primitive_map.at("unit"), res->value.value().type());
         }
       }
       // expect return expr matching function declaration
@@ -486,8 +556,11 @@ TExpr TypeResolver::resolve(Expr &expr) {
 
       const TTypeInst &t = get_type(res->left.type());
       res->type = std::visit(overload{
-        [&](const BuiltinType &bt) {
-          return builtin_type_map[bt.name.str];
+        [&](const Primitive &p) -> TypeId {
+          error(fmt::format("Currently does not support dot ref of primitive type {}.", p.name.str));
+        },
+        [&](const TBuiltinType &bt) -> TypeId {
+          error(fmt::format("Currently does not support dot ref of primitive type {}.", bt.concrete_type.base_name));
         },
         [&](const TEnumInst &inst) {
           if (auto it = inst.variants.find(res->name.str); it != inst.variants.end()) {
@@ -495,7 +568,7 @@ TExpr TypeResolver::resolve(Expr &expr) {
             return it->second.first;
           }
           if (auto it = inst.methods.find(res->name.str); it != inst.methods.end()) {
-            return builtin_type_map["__fun"];
+            return primitive_map.at("__fun");
           }
           error(fmt::format("Name {} in dot ref not found.", expr->name.str));
         },
@@ -505,7 +578,7 @@ TExpr TypeResolver::resolve(Expr &expr) {
             return it->second.first;
           }
           if (auto it = inst.methods.find(res->name.str); it != inst.methods.end()) {
-            return builtin_type_map["__fun"];
+            return primitive_map.at("__fun");
           }
           error(fmt::format("Name {} in dot ref not found.", expr->name.str));
         }
@@ -517,7 +590,7 @@ TExpr TypeResolver::resolve(Expr &expr) {
       auto res = std::make_unique<TFunCall>();
       res->callee = resolve(expr->callee);
 
-      if (res->callee.type() != builtin_type_map["__fun"]) {
+      if (res->callee.type() != primitive_map["__fun"]) {
         error("Type of callee was not a function.");
       }
 
@@ -575,20 +648,20 @@ TExpr TypeResolver::resolve(Expr &expr) {
         auto &tbranch = *res->branches.back();
 
         tbranch.condition = resolve(branch->condition);
-        if (tbranch.condition.type() != builtin_type_map["bool"]) {
-          error(builtin_type_map["bool"], tbranch.condition.type());
+        if (tbranch.condition.type() != primitive_map["bool"]) {
+          error(primitive_map["bool"], tbranch.condition.type());
         }
         tbranch.block = resolve(*branch->block);
       }
 
       if (!res->has_else()) {
-        res->type = builtin_type_map["unit"];
+        res->type = primitive_map["unit"];
       }
       else {
         res->type = res->branches.front()->block->type;
         for (size_t i = 1; i < res->branches.size(); i++) {
           if (res->type != res->branches[i]->block->type) {
-            res->type = builtin_type_map["unit"];
+            res->type = primitive_map["unit"];
             break;
           }
         }
@@ -602,13 +675,13 @@ TExpr TypeResolver::resolve(Expr &expr) {
       res->val = expr->val;
 
       res->type = std::visit(overload{
-        [&](int32_t) { return builtin_type_map["i32"]; },
-        [&](int64_t) { return builtin_type_map["i64"]; },
-        [&](float)   { return builtin_type_map["f32"]; },
-        [&](double)  { return builtin_type_map["f64"]; },
-        [&](bool)    { return builtin_type_map["bool"]; },
-        [&](char)    { return builtin_type_map["char"]; },
-        [&](const std::string &) { return builtin_type_map["Span[char]"]; },
+        [&](int32_t) { return primitive_map["i32"]; },
+        [&](int64_t) { return primitive_map["i64"]; },
+        [&](float)   { return primitive_map["f32"]; },
+        [&](double)  { return primitive_map["f64"]; },
+        [&](bool)    { return primitive_map["bool"]; },
+        [&](char)    { return primitive_map["char"]; },
+        [&](const std::string &) { return primitive_map["Span[char]"]; },
       }, res->val);
       
       return TExpr{std::move(res)};
@@ -628,7 +701,7 @@ TExpr TypeResolver::resolve(Expr &expr) {
       res->name = expr->name;
       res->decl = get_decl(expr->name.str);
       if (FunId *id = std::get_if<FunId>(&res->decl)) {
-        res->type = builtin_type_map["__fun"];
+        res->type = primitive_map["__fun"];
       }
       else if (TVarInst **var_inst = std::get_if<TVarInst *>(&res->decl)) {
         TVarInst *correct_var = get_var_local_global(expr->name.str);
@@ -663,7 +736,7 @@ TypeResolver::resolve(Block &block, std::unique_ptr<TNamespace> tnamesp) {
   if (!res->stmts.empty() && res->stmts.back().is<TExpr>()) {
     res->type = res->stmts.back().as<TExpr>().type();
   } else {
-    res->type = builtin_type_map["unit"];
+    res->type = primitive_map["unit"];
   }
   return res;
 }
@@ -674,11 +747,10 @@ std::unique_ptr<TBlock> TypeResolver::resolve(Block &block) {
 }
 
 TAST TypeResolver::resolve() {
-  builtin_numeric_types.clear();
   functions.clear();
   types.clear();
   builtin_types.clear();
-  builtin_type_map.clear();
+  primitive_map.clear();
 
   cur_ast_namesp = ast.globals.get();
   auto root_namesp = std::make_unique<TNamespace>(nullptr);
@@ -689,16 +761,14 @@ TAST TypeResolver::resolve() {
 
   std::vector<std::unique_ptr<TVarInst>> globals;
 
-  for (auto &name : default_builtin_types) {
-    builtin_type_map[name] = get_typeid(GenericInst{name});
+  for (const auto &name : default_primitives) {
+    primitive_map[name] = add_type(
+        GenericInst{name}, std::get<Primitive *>(ast.globals->get_name(name)),
+        root_tnamesp
+    );
   }
-
-  const std::vector<std::string_view> numeric_type_names = {
-      "i8",  "i16", "i32", "i64", "u8",   "u16",
-      "u32", "u64", "f32", "f64", "char",
-  };
-  for (auto s : numeric_type_names) {
-    builtin_numeric_types.insert(builtin_type_map[s]);
+  for (auto name : numeric_primitive_names) {
+    numeric_primitive_ids.insert(primitive_map[name]);
   }
 
   for (Declaration &decl : ast.decls) {
@@ -712,7 +782,7 @@ TAST TypeResolver::resolve() {
   tast.types = std::move(types);
   tast.globals = std::move(globals);
   tast.root_namesp = std::move(root_namesp);
-  tast.builtin_type_map = std::move(builtin_type_map);
+  tast.primitive_map = std::move(primitive_map);
 
   return tast;
 }

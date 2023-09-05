@@ -181,9 +181,13 @@ struct Token {
   Lexeme lexeme;
   int line;
   int col;
-  Token(): str(""), lexeme(Lexeme::NOT_A_TOKEN), line(-1), col(-1) {};
-  Token(std::string_view str, Lexeme lexeme, int line, int col):
+  inline Token(): lexeme(Lexeme::NOT_A_TOKEN), line(-1), col(-1) {};
+  inline Token(std::string_view str, Lexeme lexeme, int line, int col):
       str(str), lexeme(lexeme), line(line), col(col) { }
+
+  static inline Token make_builtin(std::string_view str, Lexeme lexeme) {
+    return {str, lexeme, -1, -1};
+  }
 };
 
 class Lexer {

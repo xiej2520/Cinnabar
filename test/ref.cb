@@ -1,0 +1,14 @@
+fun main() i32 {
+  let x = 4
+  let r Ref[i32]
+  //let rx = __ref(x)
+  
+  let vr VarRef[isize]
+  
+  let str Span[char]
+  let vstr VarSpan[char]
+  
+  let a Array[i32, 8]
+  
+
+}

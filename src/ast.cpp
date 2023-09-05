@@ -9,25 +9,24 @@ using std::vector;
 
 using enum Lexeme;
 
-const std::vector<std::string_view> default_builtin_types = {
-    "__fun", // for type resolution purposes
-    "unit",      "i8",  "i16",    "i32",  "i64",     "u8",
-    "u16",       "u32", "u64",    "f32",  "f64",     "char",
-    "bool",      "Ref", "VarRef", "Span", "VarSpan",
-
-    "Span[char]" // String for now
+const std::vector<std::string_view> default_primitives = {
+  "__fun", // for type resolution purposes
+  "unit",  "i8",  "i16", "i32",  "i64",  "u8",    "u16",   "u32",
+  "u64",   "f32", "f64", "char", "bool", "isize", "usize",
 };
 
-BuiltinType::BuiltinType(std::string name)
-    : name_str(std::move(name)), name(name_str, IDENTIFIER, 0, 0) {}
+//const std::vector<GenericName> default_builtin_types = {
+//  {"Ref", {"T"}}, {"VarRef", {"T"}}, {"Span", {"T"}}, {"VarSpan", {"T"}},
+//  {"Array", {"T", "N"}},
+//};
 
-bool GenericName::is_concrete() const { return params.empty(); }
+[[nodiscard]] bool GenericName::is_concrete() const { return params.empty(); }
 
 GenericInst::GenericInst(std::string_view base_name) : base_name(base_name) {}
 GenericInst::GenericInst(std::string_view base_name, vector<GenericInst> args)
     : base_name(base_name), args(std::move(args)){};
 
-std::string GenericInst::to_string() const {
+[[nodiscard]] std::string GenericInst::to_string() const {
   auto res = base_name;
   if (!args.empty()) {
     res.push_back('[');
@@ -39,7 +38,7 @@ std::string GenericInst::to_string() const {
   return res;
 }
 
-bool GenericInst::is_concrete() const { return args.empty(); }
+[[nodiscard]] bool GenericInst::is_concrete() const { return args.empty(); }
 
 Namespace::Namespace(Namespace *parent) : parent(parent) {}
 
@@ -61,6 +60,7 @@ std::string Namespace::to_string(int cur) {
   for (auto &p : names) {
     // clang-format off
     std::visit(overload{
+      [&](Primitive *) { type_names.push_back(p.first); },
       [&](BuiltinType *) { type_names.push_back(p.first); },
       [&](StructDecl *) { type_names.push_back(p.first); },
       [&](EnumDecl *) { type_names.push_back(p.first); },
@@ -320,11 +320,11 @@ std::string Expr::s_expr(int cur, int ind) {
 // clang-format on
 
 AST::AST(
-    vector<Declaration> decls, vector<unique_ptr<BuiltinType>> builtin_types,
-    unique_ptr<Namespace> globals
+    vector<Declaration> decls, vector<unique_ptr<Primitive>> primitives,
+    vector<unique_ptr<BuiltinType>> builtin_types, unique_ptr<Namespace> globals
 )
-    : decls(std::move(decls)), builtin_types(std::move(builtin_types)),
-      globals(std::move(globals)) {}
+    : decls(std::move(decls)), primitives(std::move(primitives)),
+      builtin_types(std::move(builtin_types)), globals(std::move(globals)) {}
 
 std::string AST::to_string() {
   std::string res = "AST\n";

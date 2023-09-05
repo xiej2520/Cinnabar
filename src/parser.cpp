@@ -136,9 +136,16 @@ GenericInst Parser::type_name() {
   Token name = expect(IDENTIFIER, "Expected type name.");
   std::vector<GenericInst> params;
   if (match(LEFT_BRACKET)) {
-    do {
+    if (name.str == "Array") {
       params.push_back(type_name());
-    } while (match(COMMA));
+      match(COMMA);
+      params.push_back(GenericInst{expect(INTEGER, "Expect integer parameter for Array[T, N].").str});
+    }
+    else {
+      do {
+        params.push_back(type_name());
+      } while (match(COMMA));
+    }
     expect(RIGHT_BRACKET, "Expect ']' after type arguments.");
   }
   return GenericInst{std::string(name.str), params};
@@ -155,17 +162,20 @@ Stmt Parser::toplevel_declaration() {
   try {
     if (match(STRUCT)) {
       return Stmt{Declaration{struct_declaration()}};
-    } else if (match(ENUM)) {
-      return Stmt{Declaration{enum_declaration()}};
-    } else if (match(FUN)) {
-      return Stmt{Declaration{function_declaration()}};
-    } else if (match({LET, VAR})) {
-      return Stmt{Declaration{variable_declaration()}};
-    } else if (match(SEMICOLON)) {
-      return Stmt{std::monostate{}};
-    } else {
-      throw error_cur("Expected top-level declaration.");
     }
+    if (match(ENUM)) {
+      return Stmt{Declaration{enum_declaration()}};
+    }
+    if (match(FUN)) {
+      return Stmt{Declaration{function_declaration()}};
+    }
+    if (match({LET, VAR})) {
+      return Stmt{Declaration{variable_declaration()}};
+    }
+    if (match(SEMICOLON)) {
+      return Stmt{std::monostate{}};
+    }
+    throw error_cur("Expected top-level declaration.");
   } catch (ParseError &err) {
     synchronize();
   }
@@ -454,7 +464,7 @@ Expr Parser::expression_bp(int min_bp) {
     )};
   } else {
     switch (token.lexeme) {
-    // clang-format off
+      // clang-format off
       case TRUE: lhs = Expr{std::make_unique<Literal>(true)}; break;
       case FALSE: lhs = Expr{std::make_unique<Literal>(false)}; break;
       case INTEGER: lhs = Expr{std::make_unique<Literal>(std::stoi(std::string(token.str)))}; break;
@@ -642,18 +652,50 @@ AST Parser::parse() {
   auto globals = std::make_unique<Namespace>(nullptr);
   namespaces.push_back(globals.get());
 
+  std::vector<std::unique_ptr<Primitive>> primitives;
   std::vector<std::unique_ptr<BuiltinType>> builtin_types;
 
-  for (auto name : default_builtin_types) {
-    // if (globals.names.contains(name)) {
-    //   fmt::print(stderr, "Globals contained name '{}' matching builtin.\n",
-    // name); abort();
-    // }
-    builtin_types.emplace_back(std::make_unique<BuiltinType>(std::string(name)));
-    add_name<BuiltinType *>(
-        builtin_types.back()->name, builtin_types.back().get()
-    );
+  for (auto name : default_primitives) {
+    primitives.push_back(std::make_unique<Primitive>(
+        Token::make_builtin(name, Lexeme::IDENTIFIER)
+    ));
+    add_name<Primitive *>(primitives.back()->name, primitives.back().get());
   }
+
+  // if (globals.names.contains(name)) {
+  //   fmt::print(stderr, "Globals contained name '{}' matching builtin.\n",
+  // name); abort();
+  // }
+
+  // struct Ref[T] {
+  //   T *ptr;
+  // }
+  // clang-format off
+  builtin_types.emplace_back(std::make_unique<BuiltinType>(
+      Token::make_builtin("Ref", Lexeme::IDENTIFIER), GenericName{"Ref", {"T"}}
+  ));
+  add_name<BuiltinType *>(builtin_types.back()->name, builtin_types.back().get());
+
+  builtin_types.emplace_back(std::make_unique<BuiltinType>(
+      Token::make_builtin("VarRef", Lexeme::IDENTIFIER), GenericName{"VarRef", {"T"}}
+  ));
+  add_name<BuiltinType *>(builtin_types.back()->name, builtin_types.back().get());
+
+  builtin_types.emplace_back(std::make_unique<BuiltinType>(
+      Token::make_builtin("Span", Lexeme::IDENTIFIER), GenericName{"Span", {"T"}}
+  ));
+  add_name<BuiltinType *>(builtin_types.back()->name, builtin_types.back().get());
+
+  builtin_types.emplace_back(std::make_unique<BuiltinType>(
+      Token::make_builtin("VarSpan", Lexeme::IDENTIFIER), GenericName{"VarSpan", {"T"}}
+  ));
+  add_name<BuiltinType *>(builtin_types.back()->name, builtin_types.back().get());
+
+  builtin_types.emplace_back(std::make_unique<BuiltinType>(
+      Token::make_builtin("Array", Lexeme::IDENTIFIER), GenericName{"Array", {"T", "N"}}
+  ));
+  add_name<BuiltinType *>(builtin_types.back()->name, builtin_types.back().get());
+  // clang-format on
 
   while (!is_at_end()) {
     Stmt decl = toplevel_declaration();
@@ -662,7 +704,10 @@ AST Parser::parse() {
     }
   }
 
-  return AST(std::move(decls), std::move(builtin_types), std::move(globals));
+  return AST(
+      std::move(decls), std::move(primitives), std::move(builtin_types),
+      std::move(globals)
+  );
 }
 
 } // namespace cinnabar

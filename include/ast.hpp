@@ -14,8 +14,6 @@
 
 namespace cinnabar {
 
-extern const std::vector<std::string_view> default_builtin_types;
-
 // statements
 struct Stmt;
 struct Assign;
@@ -43,25 +41,27 @@ struct Literal;
 struct Variable;
 struct Unary;
 
+struct BuiltinType;
+
+extern const std::vector<std::string_view> default_primitives;
+
 using DeclVariant = std::variant<
     std::unique_ptr<EnumDecl>, std::unique_ptr<FunDecl>,
     std::unique_ptr<StructDecl>, std::unique_ptr<VarDecl>>;
 
-struct BuiltinType {
-  std::string name_str; // Token holds string_view, needs owning string
+struct Primitive {
   Token name;
-  BuiltinType(std::string name);
 };
 
 using DeclPtr =
-    std::variant<BuiltinType *, EnumDecl *, FunDecl *, StructDecl *, VarDecl *>;
-using TypeDeclPtr = std::variant<BuiltinType *, EnumDecl *, StructDecl *>;
+    std::variant<Primitive *, BuiltinType *, EnumDecl *, FunDecl *, StructDecl *, VarDecl *>;
+using TypeDeclPtr = std::variant<Primitive *, BuiltinType *, EnumDecl *, StructDecl *>;
 
 // Array[T, N]
 struct GenericName {
   std::string base_name;
   std::vector<std::string> params;
-  bool is_concrete() const;
+  [[nodiscard]] bool is_concrete() const;
 };
 
 // Array[Array[i32, 4], 8]
@@ -72,8 +72,13 @@ struct GenericInst {
   GenericInst(std::string_view base_name);
   GenericInst(std::string_view base_name, std::vector<GenericInst> args);
 
-  std::string to_string() const;
-  bool is_concrete() const;
+  [[nodiscard]] std::string to_string() const;
+  [[nodiscard]] bool is_concrete() const;
+};
+
+struct BuiltinType {
+  Token name;
+  GenericName name_param;
 };
 
 struct Namespace {
@@ -283,11 +288,13 @@ struct Stmt {
 
 struct AST {
   std::vector<Declaration> decls;
+  std::vector<std::unique_ptr<Primitive>> primitives;
   std::vector<std::unique_ptr<BuiltinType>> builtin_types;
 
   std::unique_ptr<Namespace> globals;
 
   AST(std::vector<Declaration> decls,
+      std::vector<std::unique_ptr<Primitive>> primitives,
       std::vector<std::unique_ptr<BuiltinType>> builtin_types,
       std::unique_ptr<Namespace> globals);
 

@@ -43,7 +43,8 @@ TypeId TExpr::type() {
 std::string TTypeInst::name() const {
   // clang-format off
   return std::visit(overload{
-    [&](const BuiltinType &bt) { return std::string(bt.name.str); },
+    [&](const Primitive &p) { return std::string(p.name.str); },
+    [&](const TBuiltinType &bt) { return bt.concrete_type.to_string(); },
     [&](const TEnumInst &inst) { return inst.concrete_type.to_string(); },
     [&](const TStructInst &inst) { return inst.concrete_type.to_string(); }
   }, def);

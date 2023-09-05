@@ -93,3 +93,27 @@ struct S {
     };
 };
 ```
+
+
+## Pointers, Arrays, Spans
+
+```Cinnabar
+fun main() {
+    let a = 3
+    var r = __ref(a)
+    let b = 4
+    r = __ref(b)
+}
+```
+
+```C
+typedef struct Ref {
+  const int *ptr;  
+} Ref;
+int main() {
+    int a = 3;
+    Ref r = {&a};
+    int b = 4;
+    r = (Ref){&b};
+}
+```

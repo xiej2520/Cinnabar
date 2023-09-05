@@ -190,6 +190,19 @@ struct TFunInst {
   std::string name() const;
 };
 
+enum TBuiltinEnum : std::size_t {
+  Ref = 0,
+  VarRef = 1,
+  Span = 2,
+  VarSpan = 3,
+  Array = 4,
+};
+
+struct TBuiltinType {
+  GenericInst concrete_type;
+  std::variant<TypeId, TypeId, TypeId, TypeId, std::pair<TypeId, size_t>> args;
+};
+
 struct TEnumInst {
   GenericInst concrete_type;
   std::vector<TypeId> generic_args;
@@ -209,7 +222,7 @@ struct TStructInst {
 };
 
 struct TTypeInst {
-  std::variant<TEnumInst, TStructInst, BuiltinType> def;
+  std::variant<Primitive, TBuiltinType, TEnumInst, TStructInst> def;
   
   std::string name() const;
   template <typename T> bool is() { return std::holds_alternative<T>(def); }
@@ -220,7 +233,7 @@ struct TTypeInst {
 struct TAST {
   std::vector<TFunInst> functions;
   std::vector<TTypeInst> types;
-  std::unordered_map<std::string_view, TypeId> builtin_type_map;
+  std::unordered_map<std::string_view, TypeId> primitive_map;
   
   std::vector<std::unique_ptr<TVarInst>> globals;
   
