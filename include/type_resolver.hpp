@@ -78,7 +78,7 @@ struct TypeResolver {
 
   DeclaredName get_decl(const GenericInst &geninst);
 
-  TypeId find_unary_op(UnaryOp op, TypeId operand_type);
+  TypeId find_unary_op(UnaryOp op, const TExpr &operand);
   TypeId find_binary_op(BinaryOp op, TypeId lhs_type, TypeId rhs_type);
 
   // tnamesp is the TNamespace where the type will be declared

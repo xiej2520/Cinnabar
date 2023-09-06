@@ -340,7 +340,8 @@ FunId TypeResolver::add_fun(
   return res;
 }
 
-TypeId TypeResolver::find_unary_op(UnaryOp op, TypeId operand_type) {
+TypeId TypeResolver::find_unary_op(UnaryOp op, const TExpr &operand) {
+  auto operand_type = operand.type();
   switch (op) {
   case UnaryOp::PLUS:
   case UnaryOp::NEG:
@@ -358,6 +359,9 @@ TypeId TypeResolver::find_unary_op(UnaryOp op, TypeId operand_type) {
     }
     return operand_type;
   case UnaryOp::REF:
+    if (!operand.is_place_expr()) {
+      error("Operand of __ref is not a place expression.");
+    }
     return get_typeid(GenericInst{
         "Ref", std::vector<GenericInst>{types[operand_type].concrete_type()}});
   case UnaryOp::DEREF: {
@@ -701,7 +705,7 @@ TExpr TypeResolver::resolve(Expr &expr) {
       res->op = expr->op;
       res->operand = resolve(expr->operand);
       
-      res->type = find_unary_op(expr->op, res->operand.type());
+      res->type = find_unary_op(expr->op, res->operand);
       return TExpr{std::move(res)};
     },
     [&](std::unique_ptr<Variable> &expr) {

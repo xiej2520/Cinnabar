@@ -75,7 +75,8 @@ using TExprVariant = std::variant<
 struct TExpr {
   TExprVariant node;
 
-  TypeId type();
+  [[nodiscard]] TypeId type() const;
+  [[nodiscard]] bool is_place_expr() const;
 
   TExpr();
   TExpr(TExprVariant node);
@@ -187,7 +188,7 @@ struct TFunInst {
   TypeId return_type;
   std::unique_ptr<TBlock> body;
   
-  std::string name() const;
+  [[nodiscard]] std::string name() const;
 };
 
 enum TBuiltinEnum : std::size_t {

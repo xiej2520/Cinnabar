@@ -24,18 +24,34 @@ bool TIf::has_else() {
   return false;
 }
 
-TypeId TExpr::type() {
+TypeId TExpr::type() const {
   // clang-format off
   return std::visit(overload{
     [&](std::monostate) { return TypeId{-1}; },
-    [&](std::unique_ptr<TBinary> &expr) { return expr->type; },
-    [&](std::unique_ptr<TBlock> &expr) { return expr->type; },
-    [&](std::unique_ptr<TDotRef> &expr) { return expr->type; },
-    [&](std::unique_ptr<TFunCall> &expr) { return expr->type; },
-    [&](std::unique_ptr<TIf> &expr) { return expr->type; },
-    [&](std::unique_ptr<TLiteral> &expr) { return expr->type; },
-    [&](std::unique_ptr<TUnary> &expr) { return expr->type; },
-    [&](std::unique_ptr<TVariable> &expr) { return expr->type; },
+    [&](const std::unique_ptr<TBinary> &expr) { return expr->type; },
+    [&](const std::unique_ptr<TBlock> &expr) { return expr->type; },
+    [&](const std::unique_ptr<TDotRef> &expr) { return expr->type; },
+    [&](const std::unique_ptr<TFunCall> &expr) { return expr->type; },
+    [&](const std::unique_ptr<TIf> &expr) { return expr->type; },
+    [&](const std::unique_ptr<TLiteral> &expr) { return expr->type; },
+    [&](const std::unique_ptr<TUnary> &expr) { return expr->type; },
+    [&](const std::unique_ptr<TVariable> &expr) { return expr->type; },
+  }, node);
+  // clang-format on
+}
+
+bool TExpr::is_place_expr() const {
+  // clang-format off
+  return std::visit(overload{
+    [&](std::monostate) { return false; },
+    [&](const std::unique_ptr<TBinary> &) { return false; },
+    [&](const std::unique_ptr<TBlock> &) { return false; },
+    [&](const std::unique_ptr<TDotRef> &) { return true; },
+    [&](const std::unique_ptr<TFunCall> &) { return false; },
+    [&](const std::unique_ptr<TIf> &) { return false; },
+    [&](const std::unique_ptr<TLiteral> &) { return false; },
+    [&](const std::unique_ptr<TUnary> &expr) { return expr->op == UnaryOp::DEREF; },
+    [&](const std::unique_ptr<TVariable> &expr) { return std::holds_alternative<TVarInst *>(expr->decl); },
   }, node);
   // clang-format on
 }
@@ -61,7 +77,7 @@ TypeId TExpr::type() {
 // clang-format on
 
 
-std::string TFunInst::name() const {
+[[nodiscard]] std::string TFunInst::name() const {
   return concrete_fun.to_string();
 }
 

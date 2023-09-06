@@ -41,6 +41,10 @@ std::string CodegenC::mangle_name(std::string_view name) {
       res += '_';
     }
   }
+  constexpr size_t max_ident_length = 25;
+  if (res.size() >= max_ident_length) {
+    res.resize(max_ident_length);
+  }
   if (!used_names.contains(res)) {
     used_names.insert(res);
     return res;
@@ -372,7 +376,7 @@ std::string CodegenC::emit_expr(const TExpr &expr) {
     [&](const std::unique_ptr<TDotRef> &expr) {
       if (expr->left.type() != tast.primitive_map.at("__fun")) {
         CTypeInfo &type_info = ctypes[expr->left.type()];
-        auto res = "(" + emit_expr(expr->left) + ").";
+        auto res = "((" + emit_expr(expr->left) + ").";
         if (CStructInfo *struct_info = std::get_if<CStructInfo>(&type_info.data)) {
           res += struct_info->field_names[expr->prop_idx];
         }
@@ -382,6 +386,7 @@ std::string CodegenC::emit_expr(const TExpr &expr) {
         else {
           error("Cannot take dot ref of builtin type.");
         }
+        res += ')';
         return res;
       }
       error("Cannot take dot ref of a function.");
@@ -493,6 +498,12 @@ std::string CodegenC::emit_expr(const TExpr &expr) {
     },
     [&](const std::unique_ptr<TUnary> &expr) {
       auto expr_operand = emit_expr(expr->operand);
+      if (expr->op == UnaryOp::REF) {
+        return fmt::format("({}){{&{}}}", ctypes[expr->type].mangled_name, expr_operand);
+      }
+      if (expr->op == UnaryOp::DEREF) {
+        return fmt::format("(*{}.ptr)", expr_operand);
+      }
       return fmt::format("({}{})", to_string(expr->op), expr_operand);
     },
     [&](const std::unique_ptr<TVariable> &expr) { return std::string(expr->name.str); },

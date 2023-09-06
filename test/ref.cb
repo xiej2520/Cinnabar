@@ -17,7 +17,17 @@ fun main() i32 {
   
   let ra = __ref(aaa)
   let dra = __deref(ra)
+  
+  //let ri = __ref(4)
+  //let rii = __ref(4 + 4 / 2)
+  let s1 S
+  let rs = __ref(s1)
+  let rss = __ref(s1.s)
 
   //aaa[9][3][7]
   //let aaa Array[10 * Array[4 * Array[i32 * 4]]]
+}
+
+struct S {
+  s i32
 }
