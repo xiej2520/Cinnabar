@@ -1,0 +1,38 @@
+fun main() i32 {
+  let a = 1 + 2 * 3
+  let b = 4 * 5 - 6
+  let c = 7 / 8 * 9 / 10
+  let d = true && false || true || false && true ^ false && true || false ^ true
+  let e = 1 ^ 2 & 4 | 8 & 16 ^ 24 | 32
+  let f = (1 + 2) * (3 + (4 - 5) / 6)
+  let g = (1 * (2 + 3 * (4 - (5 / 6 * (7 - 8)))))
+  let h S
+  h.s = 4
+  let i = (((((1 + 2) * 3) - 4) / (5 + 6) * 7) - 8) * 9
+  let j = 4 + h.s * h.s / h.s
+  
+  let k = h.s + foo(h).s
+  
+  let m = 1 + 2 + 3 + 4 + 5 + 6 + 7 + 8 + 9 + 0 * 2 * 4 * 8 * 16 / 32
+  let n = (5 - (3 - 1)) + -1
+  let o = 20 - 3 * 4
+  let p = 2 + 6 / 3
+  let q = 2 - 6 / 3
+  let r = false == 2 < 1
+  let s = false == 1 > 2
+  let t = true != 2 <= 1
+  let u = true != 1 >= 2
+  let v = true == false || -1 < 1
+  //let w = (6 / ((x + 4) + 5)
+  return 0
+}
+
+fun foo(s S) S {
+  let r S
+  r.s = 4 + s.s
+  return r
+}
+
+struct S {
+  s i32
+}

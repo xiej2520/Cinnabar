@@ -63,6 +63,7 @@ class Parser {
   Stmt expression_statement();
   // expression with min binding power
   Expr expression_bp(int min_bp);
+  Expr expression_lhs(const Token &token);
   int prefix_binding_power(Lexeme l);
   int infix_binding_power(Lexeme l);
   int postfix_binding_power(Lexeme l);

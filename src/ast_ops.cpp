@@ -29,7 +29,7 @@ BinaryOp to_binop(Lexeme l) {
   case STAR:                return BinaryOp::MUL;
   case SLASH:               return BinaryOp::DIV;
   case MODULO:              return BinaryOp::MOD;
-  case EQUAL:               return BinaryOp::EQ;
+  case EQUAL_EQUAL:         return BinaryOp::EQ;
   case BANG_EQUAL:          return BinaryOp::NEQ;
   case GREATER:             return BinaryOp::GT;
   case LESS:                return BinaryOp::LT;
@@ -89,7 +89,7 @@ std::string to_string(BinaryOp b) {
     case BinaryOp::DIV: return "/";
     case BinaryOp::MOD: return "%";
 
-    case BinaryOp::EQ: return "=";
+    case BinaryOp::EQ: return "==";
     case BinaryOp::NEQ: return "!=";
     case BinaryOp::GT: return ">";
     case BinaryOp::LT: return "<";

@@ -29,10 +29,10 @@ struct TypeResolver {
   };
   class PushFun {
     TypeResolver *tr;
-    TFunInst *prev_fun;
+    FunId prev_fun;
     TNamespace *prev_fun_tnamesp;
   public:
-    inline PushFun(TypeResolver *tr, TFunInst *new_fun, TNamespace *new_fun_tnamesp):
+    inline PushFun(TypeResolver *tr, FunId new_fun, TNamespace *new_fun_tnamesp):
         tr(tr), prev_fun(tr->cur_fun), prev_fun_tnamesp(tr->cur_fun_tnamesp) {
       tr->cur_fun = new_fun;
       tr->cur_fun_tnamesp = new_fun_tnamesp;
@@ -57,14 +57,14 @@ struct TypeResolver {
   
   TNamespace *root_tnamesp = nullptr;
   
-  TFunInst *cur_fun = nullptr;
+  FunId cur_fun = -1;
   TNamespace *cur_fun_tnamesp = nullptr;
 
   // avoid cycles
   std::unordered_set<std::string> currently_creating;
   
   PushNamespace push_namespace(Namespace *namesp, TNamespace *tnamesp);
-  PushFun push_fun(TFunInst *fun, TNamespace *fun_tnamesp);
+  PushFun push_fun(FunId fun, TNamespace *fun_tnamesp);
 
   TypeResolver(AST &ast);
 

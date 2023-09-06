@@ -457,62 +457,23 @@ Expr Parser::expression_bp(int min_bp) {
   Token token = advance();
   std::optional<Expr> lhs = std::nullopt;
   // parse LHS of expression
-  if (prefix_binding_power(token.lexeme) != -1) {
+  if (const int prefix_bp = prefix_binding_power(token.lexeme);
+      prefix_bp != -1) {
     lhs = Expr{std::make_unique<Unary>(
-        to_unaryop(token.lexeme),
-        expression_bp(prefix_binding_power(token.lexeme))
+        to_unaryop(token.lexeme), expression_bp(prefix_bp)
     )};
   } else {
-    switch (token.lexeme) {
-      // clang-format off
-      case TRUE: lhs = Expr{std::make_unique<Literal>(true)}; break;
-      case FALSE: lhs = Expr{std::make_unique<Literal>(false)}; break;
-      case INTEGER: lhs = Expr{std::make_unique<Literal>(std::stoi(std::string(token.str)))}; break;
-      case DECIMAL: lhs = Expr{std::make_unique<Literal>(std::stod(std::string(token.str)))}; break;
-      case STRING: lhs = Expr{std::make_unique<Literal>(std::string{token.str})}; break;
-      case CHARACTER: lhs = Expr{std::make_unique<Literal>(token.str[1])}; break; // fix later
-      case IDENTIFIER: lhs = Expr{std::make_unique<Variable>(token)}; break;
-      case IF: {
-        std::vector<std::unique_ptr<If::Branch>> branches;
-        Expr condition = expression_bp(0);
-        expect(LEFT_BRACE, "Expected '{' after condition.");
-        branches.emplace_back(std::make_unique<If::Branch>(std::move(condition), block()));
-
-        while (match(ELSE)) {
-          if (match(IF)) {
-            Expr condition = expression_bp(0);
-            expect(LEFT_BRACE, "Expected '{' after condition.");
-            branches.emplace_back(std::make_unique<If::Branch>(std::move(condition), block()));
-          }
-          else {
-            expect(LEFT_BRACE, "Expected '{' after 'else'.");
-            branches.emplace_back(std::make_unique<If::Branch>(Expr{std::make_unique<Literal>(true)}, block()));
-            break;
-          }
-        }
-        lhs = Expr{std::make_unique<If>(std::move(branches))};
-        break;
-      }
-      case ELSE: {
-        throw error_prev("Unexpected 'else' with no preceding 'if'.");
-      }
-      case LEFT_BRACE: {
-        lhs = Expr{block()};
-        break;
-      }
-      default: throw error_prev(fmt::format("Unexpected token in expression: {}.", to_string(token.lexeme)));
-      // clang-format on
-    }
+    lhs = expression_lhs(token);
   }
-
   // LHS done, parse RHS
 
   // parse postfix or infix with min_bp or greater
   while (cur_token().lexeme != END_OF_FILE) {
     token = cur_token();
-    int lhs_postfix_bp = postfix_binding_power(token.lexeme);
-    if (lhs_postfix_bp != -1) {      // is a postfix op
-      if (lhs_postfix_bp < min_bp) { // not enough binding power
+    if (int postfix_bp = postfix_binding_power(token.lexeme);
+        postfix_bp != -1) {
+      // is a postfix op
+      if (postfix_bp < min_bp) { // not enough binding power
         break;
       }
       switch (token.lexeme) {
@@ -524,9 +485,8 @@ Expr Parser::expression_bp(int min_bp) {
           if (args.size() != 1) {
             error_prev("__ref can only be called on one argument.");
           }
-          lhs = Expr{std::make_unique<Unary>(
-              UnaryOp::REF, Expr{std::move(args[0])}
-          )};
+          lhs = Expr{
+              std::make_unique<Unary>(UnaryOp::REF, Expr{std::move(args[0])})};
         } else if (var != nullptr && (*var)->name.str == "__deref") {
           if (args.size() != 1) {
             error_prev("__deref can only be called on one argument.");
@@ -554,16 +514,16 @@ Expr Parser::expression_bp(int min_bp) {
       }
       continue;
     }
-    int lhs_infix_bp = infix_binding_power(token.lexeme);
-    if (lhs_infix_bp != -1) { // is an infix op
-      if (lhs_infix_bp < min_bp) {
+    if (int infix_bp = infix_binding_power(token.lexeme); infix_bp != -1) {
+      // is an infix op
+      if (infix_bp < min_bp) {
         break;
       }
       advance();
       BinaryOp op = to_binop(token.lexeme);
       // recursive call with slightly higher binding power for
       // left-associativity
-      auto rhs = expression_bp(min_bp + 1);
+      auto rhs = expression_bp(infix_bp + 1);
       // if assign was an Expr, would do switch here
       lhs = Expr{std::make_unique<Binary>(
           op, Expr{std::move(lhs.value())}, Expr{std::move(rhs)}
@@ -577,6 +537,48 @@ Expr Parser::expression_bp(int min_bp) {
     throw error_prev("Expected expression.");
   }
   return std::move(lhs.value());
+}
+
+Expr Parser::expression_lhs(const Token &token) {
+  switch (token.lexeme) {
+  // clang-format off
+    case TRUE: return Expr{std::make_unique<Literal>(true)};
+    case FALSE: return Expr{std::make_unique<Literal>(false)};
+    case INTEGER: return Expr{std::make_unique<Literal>(std::stoi(std::string(token.str)))};
+    case DECIMAL: return Expr{std::make_unique<Literal>(std::stod(std::string(token.str)))};
+    case STRING: return Expr{std::make_unique<Literal>(std::string{token.str})};
+    case CHARACTER: return Expr{std::make_unique<Literal>(token.str[1])}; // fix later
+    case IDENTIFIER: return Expr{std::make_unique<Variable>(token)};
+    case IF: {
+      std::vector<std::unique_ptr<If::Branch>> branches;
+      Expr condition = expression_bp(0);
+      expect(LEFT_BRACE, "Expected '{' after condition.");
+      branches.emplace_back(std::make_unique<If::Branch>(std::move(condition), block()));
+
+      while (match(ELSE)) {
+        if (match(IF)) {
+          Expr condition = expression_bp(0);
+          expect(LEFT_BRACE, "Expected '{' after condition.");
+          branches.emplace_back(std::make_unique<If::Branch>(std::move(condition), block()));
+        }
+        else {
+          expect(LEFT_BRACE, "Expected '{' after 'else'.");
+          branches.emplace_back(std::make_unique<If::Branch>(Expr{std::make_unique<Literal>(true)}, block()));
+          break;
+        }
+      }
+      return Expr{std::make_unique<If>(std::move(branches))};
+    }
+    case ELSE: throw error_prev("Unexpected 'else' with no preceding 'if'.");
+    case LEFT_BRACE: return Expr{block()};
+    case LEFT_PAREN: {
+      auto lhs = expression_bp(0);
+      expect(RIGHT_PAREN, "Expected ')' following open '('.");
+      return lhs;
+    }
+    default: throw error_prev(fmt::format("Unexpected token in expression: {}.", to_string(token.lexeme)));
+    // clang-format on
+  }
 }
 
 enum BindingPower {

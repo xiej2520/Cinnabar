@@ -18,7 +18,7 @@ TypeResolver::push_namespace(Namespace *namesp, TNamespace *tnamesp) {
   return {this, namesp, tnamesp};
 }
 TypeResolver::PushFun
-TypeResolver::push_fun(TFunInst *fun, TNamespace *fun_tnamesp) {
+TypeResolver::push_fun(FunId fun, TNamespace *fun_tnamesp) {
   return {this, fun, fun_tnamesp};
 }
 
@@ -334,7 +334,7 @@ FunId TypeResolver::add_fun(
 
   functions[res].return_type = get_typeid(decl->return_type);
 
-  auto f = push_fun(&functions[res], block_namesp.get());
+  auto f = push_fun(res, block_namesp.get());
   functions[res].body = resolve(*decl->body, std::move(block_namesp));
 
   return res;
@@ -381,6 +381,20 @@ TypeId TypeResolver::find_unary_op(UnaryOp op, const TExpr &operand) {
 
 TypeId
 TypeResolver::find_binary_op(BinaryOp op, TypeId lhs_type, TypeId rhs_type) {
+  switch (op) {
+  case BinaryOp::EQ:
+    if (lhs_type == rhs_type) {
+      return primitive_map.at("bool");
+    }
+  break;
+  case BinaryOp::NEQ:
+    if (lhs_type == rhs_type) {
+      return primitive_map.at("bool");
+    }
+  break;
+  default: ;
+  }
+
   if (numeric_primitive_ids.contains(lhs_type) &&
       numeric_primitive_ids.contains(rhs_type)) {
     if (lhs_type != rhs_type) {
@@ -481,14 +495,14 @@ std::optional<TStmt> TypeResolver::resolve(Stmt &stmt) {
         res->value = std::nullopt;
       }
       // expect no return expr
-      if (cur_fun->return_type == primitive_map.at("unit")) {
+      if (functions[cur_fun].return_type == primitive_map.at("unit")) {
         if (res->value.has_value() && res->value.value().type() != primitive_map.at("unit")) {
           error(primitive_map.at("unit"), res->value.value().type());
         }
       }
       // expect return expr matching function declaration
-      else if (!res->value.has_value() || res->value.value().type() != cur_fun->return_type) {
-        error(cur_fun->return_type, res->value.value().type());
+      else if (!res->value.has_value() || res->value.value().type() != functions[cur_fun].return_type) {
+        error(functions[cur_fun].return_type, res->value.value().type());
       }
       return TStmt{std::move(res)};
     },
