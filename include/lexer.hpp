@@ -92,7 +92,7 @@ enum class Lexeme : uint8_t {
   NOT_A_TOKEN,
 };
 
-constexpr std::string to_string(Lexeme l) {
+constexpr std::string_view to_string(Lexeme l) {
   switch (l) {
   case Lexeme::LEFT_PAREN:            return "LEFT_PAREN";
   case Lexeme::RIGHT_PAREN:           return "RIGHT_PAREN";
