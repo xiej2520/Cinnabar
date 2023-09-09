@@ -1,6 +1,20 @@
-fun fib(n i32) i32 {
-  if n <= 1 { return n }
-  let a = fib(n - 1)
-  var b = fib(n-2)
-  return a + b
+fun fib(i i32) i32 {
+  return if i <= 1 { i } else { fib(i-1) + fib(i-2) }
+}
+
+fun fib2(i i32) i32 {
+  if i <= 1 { return i }
+  return fib(i-1) + fib(i-2)
+}
+
+fun fib3(i i32) i32 {
+  fun fib(a i32, b i32, i i32) i32 {
+    if i == 0 { return b }
+    return fib(b, a + b, i - 1)
+  }
+  return fib(1, 0, i);
+}
+
+fun main() i32 {
+  let f50 = fib3(50)
 }

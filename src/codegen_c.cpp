@@ -12,10 +12,10 @@ CTypeInfo::CTypeInfo(std::string mangled_name)
 CFunInfo::CFunInfo(std::string mangled_name)
     : mangled_name(std::move(mangled_name)) {}
 
-const CEnumInfo &CTypeInfo::enum_info() const {
+[[nodiscard]] const CEnumInfo &CTypeInfo::enum_info() const {
   return std::get<CEnumInfo>(data);
 }
-const CStructInfo &CTypeInfo::struct_info() const {
+[[nodiscard]] const CStructInfo &CTypeInfo::struct_info() const {
   return std::get<CStructInfo>(data);
 }
 
@@ -392,7 +392,9 @@ std::string CodegenC::emit_expr(const TExpr &expr) {
       error("Cannot take dot ref of a function.");
     },
     [&](const std::unique_ptr<TFunCall> &expr) {
-      auto res = emit_expr(expr->callee);
+      //auto res = emit_expr(expr->callee);
+      const CFunInfo &info = cfuns[expr->fun];
+      auto res = info.mangled_name;
       res += '(';
       if (!expr->args.empty()) {
         for (auto &arg : expr->args) {
@@ -501,12 +503,17 @@ std::string CodegenC::emit_expr(const TExpr &expr) {
       if (expr->op == UnaryOp::REF) {
         return fmt::format("({}){{&{}}}", ctypes[expr->type].mangled_name, expr_operand);
       }
+      if (expr->op == UnaryOp::VARREF) {
+        return fmt::format("({}){{&{}}}", ctypes[expr->type].mangled_name, expr_operand);
+      }
       if (expr->op == UnaryOp::DEREF) {
         return fmt::format("(*{}.ptr)", expr_operand);
       }
       return fmt::format("({}{})", to_string(expr->op), expr_operand);
     },
-    [&](const std::unique_ptr<TVariable> &expr) { return std::string(expr->name.str); },
+    [&](const std::unique_ptr<TVariable> &expr) {
+      return std::string(expr->name.str);
+    },
   }, expr.node);
   // clang-format on
 }

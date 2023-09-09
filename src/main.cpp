@@ -43,7 +43,8 @@ int main(int argc, char **argv) {
   
   struct Args : public argparse::Args {
     std::string &src = arg("Source file");
-    std::string &out = kwarg("o", "File name for the output.").set_default("a.c");
+    std::string &c_out = kwarg("c", "File name for the .c output.").set_default("a.c");
+    std::string &out = kwarg("o", "File name for the output.").set_default("a.out");
     bool &format     = flag("f,format", "Use clang-format on the output");
   };
   
@@ -58,7 +59,7 @@ int main(int argc, char **argv) {
     cinnabar::Parser parser(src);
     auto ast = parser.parse();
 
-    fmt::print(stderr, "{}\n\n--------\n\n", ast.to_string());
+    fmt::print(stderr, "{}\n--------\n", ast.to_string());
     
     cinnabar::TypeResolver resolver(ast);
     auto tast = resolver.resolve();
@@ -68,8 +69,9 @@ int main(int argc, char **argv) {
     
     fmt::print("{}", res);
     
-    write_file(args.out, res);
+    write_file(args.c_out, res);
     if (args.format) {
-      std::system(fmt::format("clang-format -i {}", args.out).c_str());
+      std::system(fmt::format("clang-format -i {}", args.c_out).c_str());
     }
+    std::system(fmt::format("cc {} -o {}", args.c_out, args.out).c_str());
 }

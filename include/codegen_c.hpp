@@ -33,8 +33,8 @@ struct CTypeInfo {
   std::string mangled_name;
   std::variant<CPrimitiveInfo, CBuiltinInfo, CEnumInfo, CStructInfo> data;
 
-  const CEnumInfo &enum_info() const;
-  const CStructInfo &struct_info() const;
+  [[nodiscard]] const CEnumInfo &enum_info() const;
+  [[nodiscard]] const CStructInfo &struct_info() const;
 
   CTypeInfo(std::string mangled_name);
 };

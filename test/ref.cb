@@ -21,11 +21,18 @@ fun main() i32 {
   //let ri = __ref(4)
   //let rii = __ref(4 + 4 / 2)
   let s1 S
-  let rs = __ref(s1)
-  let rss = __ref(s1.s)
+  let rs = __varref(s1)
+  let rss = __varref(s1.s)
+  
+  __deref(rs).s = 4
+  __deref(rss) = 5
 
   //aaa[9][3][7]
   //let aaa Array[10 * Array[4 * Array[i32 * 4]]]
+
+  // let rs = s1#
+  // let s1 = rs@
+  //
 }
 
 struct S {

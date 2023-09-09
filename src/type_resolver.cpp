@@ -364,11 +364,25 @@ TypeId TypeResolver::find_unary_op(UnaryOp op, const TExpr &operand) {
     }
     return get_typeid(GenericInst{
         "Ref", std::vector<GenericInst>{types[operand_type].concrete_type()}});
+  case UnaryOp::VARREF:
+    if (!operand.is_place_expr()) {
+      error("Operand of __varref is not a place expression.");
+    }
+    return get_typeid(GenericInst{
+        "VarRef", std::vector<GenericInst>{types[operand_type].concrete_type()}}
+    );
   case UnaryOp::DEREF: {
     const TTypeInst &type = types[operand_type];
-    if (const TBuiltinType *bt = std::get_if<TBuiltinType>(&type.def);
-        bt != nullptr && bt->args.index() == TBuiltinEnum::Ref) {
-      return std::get<TBuiltinEnum::Ref>(bt->args);
+    if (const TBuiltinType *bt = std::get_if<TBuiltinType>(&type.def); bt) {
+      if (bt->args.index() == TBuiltinEnum::Ref) {
+        return std::get<TBuiltinEnum::Ref>(bt->args);
+      } else if (bt->args.index() == TBuiltinEnum::VarRef) {
+        return std::get<TBuiltinEnum::VarRef>(bt->args);
+      } else {
+        error(
+            fmt::format("Tried to deref a non-Ref type: {}", operand_type.value)
+        );
+      }
     }
     error(fmt::format("Tried to deref a non-Ref type: {}", operand_type.value));
   }
@@ -386,13 +400,13 @@ TypeResolver::find_binary_op(BinaryOp op, TypeId lhs_type, TypeId rhs_type) {
     if (lhs_type == rhs_type) {
       return primitive_map.at("bool");
     }
-  break;
+    break;
   case BinaryOp::NEQ:
     if (lhs_type == rhs_type) {
       return primitive_map.at("bool");
     }
-  break;
-  default: ;
+    break;
+  default:;
   }
 
   if (numeric_primitive_ids.contains(lhs_type) &&
@@ -447,21 +461,8 @@ std::optional<TStmt> TypeResolver::resolve(Stmt &stmt) {
       res->rhs = resolve(stmt->rhs);
 
       // check for assignable
-      if (res->lhs.is<std::unique_ptr<TVariable>>()) {
-        // assign to variable
-      }
-      else if (res->lhs.is<std::unique_ptr<TDotRef>>()) {
-        // field
-      }
-      else if (res->lhs.is<std::unique_ptr<TFunCall>>()) {
-        // only deref builtin for now
-        TFunCall &fun_call = *res->lhs.as<std::unique_ptr<TFunCall>>();
-        if (fun_call.callee.is<std::unique_ptr<TVariable>>()) {
-          TVariable &fun = *fun_call.callee.as<std::unique_ptr<TVariable>>();
-          if (fun.name.str != "__deref") {
-            error("Left side of assignment is a call to function, but not __deref.");
-          }
-        }
+      if (res->lhs.is_place_expr()) {
+
       }
       else {
         error("Left side of assignment is not an assignee expression.");

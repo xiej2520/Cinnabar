@@ -487,6 +487,12 @@ Expr Parser::expression_bp(int min_bp) {
           }
           lhs = Expr{
               std::make_unique<Unary>(UnaryOp::REF, Expr{std::move(args[0])})};
+        } else if (var != nullptr && (*var)->name.str == "__varref") {
+          if (args.size() != 1) {
+            error_prev("__varref can only be called on one argument.");
+          }
+          lhs = Expr{
+            std::make_unique<Unary>(UnaryOp::VARREF, Expr{std::move(args[0])})};
         } else if (var != nullptr && (*var)->name.str == "__deref") {
           if (args.size() != 1) {
             error_prev("__deref can only be called on one argument.");

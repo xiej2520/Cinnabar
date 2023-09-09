@@ -9,6 +9,7 @@ enum class UnaryOp {
   NEG,
   NOT,
   REF,
+  VARREF,
   DEREF,
 
   ERROR,
