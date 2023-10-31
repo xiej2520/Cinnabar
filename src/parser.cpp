@@ -1,7 +1,5 @@
 #include "parser.hpp"
 
-#include "fmt/core.h"
-
 #include <unordered_set>
 
 namespace cinnabar {

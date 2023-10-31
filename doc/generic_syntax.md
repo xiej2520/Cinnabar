@@ -32,3 +32,11 @@
     * More typing for deeply nested types, ugly as turbofish?
   * `Vec!int`, `Map!(Vec!int, Map!(int, int))`
   * `Vec\int`, `Map\[Vec\int, Map\[int, int]]`
+
+```Cinnabar
+fun f[T, R](T container, R elem) {
+  #[let x = fib(35)]
+  let i = if container.contains(elem) { 25 } else { 15 }
+}
+
+```

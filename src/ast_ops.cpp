@@ -75,7 +75,8 @@ std::string to_string(UnaryOp u) {
     case UnaryOp::REF:  return "&";
     case UnaryOp::VARREF:  return "&";
     case UnaryOp::DEREF: return "*";
-    case UnaryOp::ERROR: return "NOT A UNARY OP";
+    case UnaryOp::ERROR: [[fallthrough]];
+    default: return "NOT A UNARY OP";
     // clang-format on
   }
 }

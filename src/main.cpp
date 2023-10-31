@@ -5,7 +5,6 @@
 
 #include "argparse/argparse.hpp"
 
-#include "fmt/core.h"
 #include <cstdlib>
 #include <fstream>
 #include <sstream>

@@ -2,8 +2,6 @@
 
 #include "codegen.hpp"
 
-#include "fmt/core.h"
-
 namespace cinnabar {
 
 struct CPrimitiveInfo {

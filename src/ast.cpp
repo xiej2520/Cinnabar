@@ -1,7 +1,5 @@
 #include "ast.hpp"
 
-#include "fmt/core.h"
-
 namespace cinnabar {
 
 using std::unique_ptr;

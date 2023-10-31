@@ -8,6 +8,8 @@ set(CMAKE_CXX_STANDARD_REQUIRED YES)
 include_directories(include)
 link_directories(include)
 
+include_directories(include/fmt)
+
 file(GLOB_RECURSE SOURCES "src/*.cpp" main.cpp)
 
 if(MSVC)
@@ -33,14 +35,8 @@ endif()
 #set(CMAKE_CXX_CLANG_TIDY "clang-tidy-16;-header-filter=.*")
 add_executable(cinnabar ${SOURCES})
 
-include(FetchContent)
-FetchContent_Declare(fmt
-  GIT_REPOSITORY https://github.com/fmtlib/fmt.git
-  GIT_TAG master
-)
-FetchContent_MakeAvailable(fmt)
-
-target_link_libraries(cinnabar PRIVATE fmt::fmt)
+#find_package(fmt)
+#target_link_libraries(cinnabar fmt::fmt)
 
 # Debug build
 # cmake -S . -B build/ -D CMAKE_BUILD_TYPE=Debug

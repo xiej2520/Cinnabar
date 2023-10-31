@@ -1,0 +1,8 @@
+
+fun main() {
+  let s = "abcde"
+  let a = 45
+  let b = 39
+  
+  __print("{}, {}\n", s, a + b)
+}

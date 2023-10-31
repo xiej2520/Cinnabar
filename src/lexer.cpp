@@ -1,7 +1,5 @@
 #include "lexer.hpp"
 
-#include "fmt/core.h"
-
 #include <unordered_map>
 
 namespace cinnabar {

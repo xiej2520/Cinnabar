@@ -2,8 +2,6 @@
 
 #include "codegen_c.hpp"
 
-#include "fmt/core.h"
-
 namespace cinnabar {
 
   
@@ -19,7 +17,7 @@ std::string generate(const TAST &tast, CodegenOutput output_type) {
     abort();
     return "";
   }
-  
+  return "";
 }
 
   

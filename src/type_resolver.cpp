@@ -4,8 +4,6 @@
 #include <ranges>
 #include <string>
 
-#include "fmt/core.h"
-
 namespace cinnabar {
 
 const std::vector<std::string_view> numeric_primitive_names = {
@@ -731,6 +729,7 @@ TExpr TypeResolver::resolve(Expr &expr) {
       res->decl = get_decl(expr->name.str);
       if (FunId *id = std::get_if<FunId>(&res->decl)) {
         res->type = primitive_map["__fun"];
+        (void) id;
       }
       else if (TVarInst **var_inst = std::get_if<TVarInst *>(&res->decl)) {
         TVarInst *correct_var = get_var_local_global(expr->name.str);
