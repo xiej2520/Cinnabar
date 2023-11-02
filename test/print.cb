@@ -4,5 +4,11 @@ fun main() {
   let a = 45
   let b = 39
   
+  // print an int, double, char, string
+  __print(a)
+  __print(s)
+  __print("ABC")
+
+  // print a formatted string
   __print("{}, {}\n", s, a + b)
 }

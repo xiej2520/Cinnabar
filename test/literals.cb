@@ -1,4 +1,4 @@
-fun main() {
+fun main() i32 {
   let a = 1
   let b = -1
   let c = true

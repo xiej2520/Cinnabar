@@ -18,7 +18,7 @@ if(MSVC)
 else()
     message(STATUS "Non-MSVC compiler detected")
     # -gdwarf-4 for valgrind?
-    add_compile_options("-Wall" "-Wextra" "-Werror" "-Wdouble-promotion"
+    add_compile_options("-Wall" "-Wextra" "-Wpedantic" "-Werror" "-Wdouble-promotion"
             # "$<$<CONFIG:Debug>:-gdwarf-4>"
             "$<$<CONFIG:Release>:-O3>")
     if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")

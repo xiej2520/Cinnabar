@@ -508,6 +508,8 @@ std::optional<TStmt> TypeResolver::resolve(Stmt &stmt) {
     [&](std::unique_ptr<While> &) -> std::optional<TStmt> { return std::nullopt; },
     [&](std::unique_ptr<Print> &stmt) -> std::optional<TStmt> {
       auto res = std::make_unique<TPrint>();
+      auto span_id = get_typeid(GenericInst{"Span", {GenericInst{"char"}}});
+      (void) span_id;
       for (auto &expr : stmt->args) {
         res->args.push_back(resolve(expr));
       }
