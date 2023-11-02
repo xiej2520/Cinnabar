@@ -22,6 +22,9 @@ struct TDeclaration;
 struct TFor;
 struct TReturn;
 struct TWhile;
+
+// don't want to implement variadics or macros yet
+struct Print;
 // declaration statements
 struct TEnumInst;
 struct TFunInst;
@@ -169,11 +172,15 @@ struct TVarInst {
 
 struct TWhile {};
 
+struct TPrint {
+  std::vector<TExpr> args;
+};
+
 using TStmtVariant = std::variant<
     std::unique_ptr<TAssign>, std::unique_ptr<TBreak>,
     std::unique_ptr<TContinue>, TExpr,
     std::unique_ptr<TFor>, std::unique_ptr<TReturn>, std::unique_ptr<TVarInst>,
-    std::unique_ptr<TWhile>>;
+    std::unique_ptr<TWhile>, std::unique_ptr<TPrint>>;
 
 struct TStmt {
   TStmtVariant node;

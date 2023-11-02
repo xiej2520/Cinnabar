@@ -1,0 +1,23 @@
+fun main() {
+  let a = 1
+  let b = -1
+  let c = true
+  let d = false
+  let e = 2147483647
+  // fix later
+  //let f = -2147483648
+  let g = "g"
+  let h = "\n\\\t\0\'\"ABCDE"
+  let i = '\n'
+  let j = '\\'
+  let k = 1.0
+  let l = -99.99999
+  
+
+  let c1 = '\0'
+  let c2 = '\''
+  let c3 = '\"'
+  let c4 = '\\'
+  let c5 = '\n'
+  let c6 = '\t'
+}

@@ -335,11 +335,30 @@ void CodegenC::emit_stmt(const TStmt &stmt) {
       }
     },
     [&](const std::unique_ptr<TWhile> &) { },
+    [&](const std::unique_ptr<TPrint> &) { },
   }, stmt.node);
 
   loc += ';';
   emit_line("{}", loc);
   // clang-format on
+}
+
+// takes a raw literal (with \0, \n, etc. as raw characters, converts escaped)
+std::string to_escape_literal(std::string_view literal) {
+  std::string res{};
+  res.reserve(literal.size());
+  for (char c : literal) {
+    switch (c) {
+    case '\0': res += "\\0"; break;
+    case '\'': res += "\\'"; break;
+    case '\"': res += "\\\""; break;
+    case '\\': res += "\\\\"; break;
+    case '\t': res += "\\t"; break;
+    case '\n': res += "\\n"; break;
+    default: res += c;
+    }
+  }
+  return res;
 }
 
 std::string CodegenC::emit_expr(const TExpr &expr) {
@@ -494,8 +513,13 @@ std::string CodegenC::emit_expr(const TExpr &expr) {
         [&](float val) { return fmt::format("{}", val); },
         [&](double val) { return fmt::format("{}", val); },
         [&](bool val) -> std::string { return val ? "true" : "false"; },
-        [&](char val) { return fmt::format("'{}'", val); },
-        [&](const std::string &val) { return fmt::format("\"{}\"", val); },
+        [&](char &val) { return fmt::format("'{}'", to_escape_literal(std::string_view(&val, 1))); },
+        [&](const std::string &val) {
+          return fmt::format("({}){{\"{}\",{}}}",
+            type_name(expr->type),
+            to_escape_literal(val),
+          val.size());
+        },
       }, expr->val);
     },
     [&](const std::unique_ptr<TUnary> &expr) {

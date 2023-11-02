@@ -60,6 +60,8 @@ class Parser {
   // namespace numbering will clash, handle this elsewhere...
   std::unique_ptr<Block> block(std::unique_ptr<Namespace> namesp);
   
+  char parse_character(std::string_view literal);
+  
   Stmt expression_statement();
   // expression with min binding power
   Expr expression_bp(int min_bp);

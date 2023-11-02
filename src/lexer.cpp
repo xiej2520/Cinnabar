@@ -82,9 +82,12 @@ void Lexer::read_character() {
     char escape = advance();
     // unfinished
     switch (escape) {
+    case '0':
+    case '\'':
+    case '\"':
+    case '\\':
     case 't':
     case 'n':
-    case '\\':
       break;
     }
   }

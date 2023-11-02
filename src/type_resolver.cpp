@@ -506,6 +506,13 @@ std::optional<TStmt> TypeResolver::resolve(Stmt &stmt) {
       return TStmt{std::move(res)};
     },
     [&](std::unique_ptr<While> &) -> std::optional<TStmt> { return std::nullopt; },
+    [&](std::unique_ptr<Print> &stmt) -> std::optional<TStmt> {
+      auto res = std::make_unique<TPrint>();
+      for (auto &expr : stmt->args) {
+        res->args.push_back(resolve(expr));
+      }
+      return TStmt{std::move(res)};
+    }
   }, stmt.node);
 }
 
@@ -629,7 +636,7 @@ TExpr TypeResolver::resolve(Expr &expr) {
           //[&](BuiltinType *) { error("Builtin type not callable."); },
           //[&](EnumDecl *) { error("Enum type not callable."); },
           [&](FunId id) {
-            if (id < 0) error("Internal error, declaration not found.");
+            if (id < 0) error("Internal error, function declaration not found.");
             res->type = get_fun(id).return_type;
             res->fun = id;
           },
@@ -708,7 +715,9 @@ TExpr TypeResolver::resolve(Expr &expr) {
         [&](double)  { return primitive_map["f64"]; },
         [&](bool)    { return primitive_map["bool"]; },
         [&](char)    { return primitive_map["char"]; },
-        [&](const std::string &) { return primitive_map["Span[char]"]; },
+        [&](const std::string &) {
+          return get_typeid(GenericInst{"Span", {GenericInst{"char"}}});
+        },
       }, res->val);
       
       return TExpr{std::move(res)};

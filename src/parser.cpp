@@ -383,6 +383,11 @@ Stmt Parser::statement() {
       }
       return Stmt{std::make_unique<Return>(expression_bp(0))};
     }
+    if (check(IDENTIFIER) && cur_token().str == "__print") {
+      advance();
+      expect(LEFT_PAREN, "Expected '(' after __print");
+      return Stmt{std::make_unique<Print>(argument_list())};
+    }
     return expression_statement();
   } catch (ParseError &err) {
     synchronize();
@@ -421,6 +426,25 @@ std::unique_ptr<Block> Parser::block(std::unique_ptr<Namespace> namesp) {
   return std::make_unique<Block>(std::move(res), std::move(namesp));
 }
 
+// input: valid character literal from lexer
+char Parser::parse_character(std::string_view literal) {
+  if (literal[1] != '\\') {
+    return literal[1];
+  }
+  switch (literal[2]) {
+    case '\\': return '\\';
+    case 'n': return '\n';
+    case 't': return '\t';
+    case '\"': return '\"';
+    case '\'': return '\'';
+    case '0': return '\0';
+    default: error_prev(fmt::format("Expected valid escape character, got {}", literal[2]));
+  }
+  return '\0';
+}
+
+
+
 Stmt Parser::expression_statement() {
   Expr expr = expression_bp(0);
   switch (cur_token().lexeme) {
@@ -455,8 +479,7 @@ Expr Parser::expression_bp(int min_bp) {
   Token token = advance();
   std::optional<Expr> lhs = std::nullopt;
   // parse LHS of expression
-  if (const int prefix_bp = prefix_binding_power(token.lexeme);
-      prefix_bp != -1) {
+  if (int prefix_bp = prefix_binding_power(token.lexeme); prefix_bp != -1) {
     lhs = Expr{std::make_unique<Unary>(
         to_unaryop(token.lexeme), expression_bp(prefix_bp)
     )};
@@ -474,6 +497,7 @@ Expr Parser::expression_bp(int min_bp) {
       if (postfix_bp < min_bp) { // not enough binding power
         break;
       }
+
       switch (token.lexeme) {
       case LEFT_PAREN: {
         advance();
@@ -518,6 +542,7 @@ Expr Parser::expression_bp(int min_bp) {
       }
       continue;
     }
+
     if (int infix_bp = infix_binding_power(token.lexeme); infix_bp != -1) {
       // is an infix op
       if (infix_bp < min_bp) {
@@ -537,10 +562,35 @@ Expr Parser::expression_bp(int min_bp) {
     // not postfix or infix, end
     break;
   }
+
   if (!lhs.has_value()) {
     throw error_prev("Expected expression.");
   }
   return std::move(lhs.value());
+}
+
+// converts a valid string literal with escape sequences and enclosing ""
+// to literal without escape sequences
+std::string to_raw_string(std::string_view literal) {
+  std::string res{};
+  res.reserve(literal.size());
+  for (size_t i = 1; i + 1 < literal.size(); i++) {
+    switch (literal[i]) {
+      case '\\': {
+        i++;
+        switch (literal[i]) {
+          case '0': res += '\0'; break;
+          case '\'': res += '\''; break;
+          case '"': res += '"'; break;
+          case 't': res += '\t'; break;
+          case 'n': res += '\n'; break;
+        }
+        break;
+      }
+      default: res += literal[i]; break;
+    }
+  }
+  return res;
 }
 
 Expr Parser::expression_lhs(const Token &token) {
@@ -550,8 +600,10 @@ Expr Parser::expression_lhs(const Token &token) {
     case FALSE: return Expr{std::make_unique<Literal>(false)};
     case INTEGER: return Expr{std::make_unique<Literal>(std::stoi(std::string(token.str)))};
     case DECIMAL: return Expr{std::make_unique<Literal>(std::stod(std::string(token.str)))};
-    case STRING: return Expr{std::make_unique<Literal>(std::string{token.str})};
-    case CHARACTER: return Expr{std::make_unique<Literal>(token.str[1])}; // fix later
+    case STRING:
+      // remove quotes in string literal
+      return Expr{std::make_unique<Literal>(to_raw_string(token.str))};
+    case CHARACTER: return Expr{std::make_unique<Literal>(parse_character(token.str))};
     case IDENTIFIER: return Expr{std::make_unique<Variable>(token)};
     case IF: {
       std::vector<std::unique_ptr<If::Branch>> branches;

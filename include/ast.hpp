@@ -24,6 +24,9 @@ struct Expression;
 struct For;
 struct Return;
 struct While;
+
+// don't want to implement variadics or macros yet
+struct Print;
 // declaration statements
 struct EnumDecl;
 struct FunDecl;
@@ -274,10 +277,16 @@ struct Return {
 
 struct While {};
 
+struct Print {
+  std::vector<Expr> args;
+};
+
 using StmtVariant = std::variant<
     std::monostate, std::unique_ptr<Assign>, std::unique_ptr<Break>,
     std::unique_ptr<Continue>, Declaration, std::unique_ptr<Expression>,
-    std::unique_ptr<For>, std::unique_ptr<Return>, std::unique_ptr<While>>;
+    std::unique_ptr<For>, std::unique_ptr<Return>, std::unique_ptr<While>,
+    std::unique_ptr<Print>
+>;
 
 struct Stmt {
   StmtVariant node;

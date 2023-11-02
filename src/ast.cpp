@@ -251,6 +251,14 @@ std::string Stmt::s_expr(int cur, int ind) {
       return fmt::format("{:{}}(Return)\n", "", cur);
     },
     [&](unique_ptr<While> &) { return fmt::format(""); },
+    [&](unique_ptr<Print> &stmt) {
+      std::string res{};
+      res += fmt::format("{:{}}(Print\n", "", cur);
+      for (auto &expr : stmt->args) {
+        res += expr.s_expr(cur + ind, ind);
+      }
+      return res + fmt::format("{:{}})", "", cur);
+    },
   },
   node);
 }
