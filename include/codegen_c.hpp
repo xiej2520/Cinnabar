@@ -50,6 +50,9 @@ class CodegenC {
   std::vector<CTypeInfo> ctypes;
   std::vector<CFunInfo> cfuns;
 
+  // TypeId -> name, Span[char] also included
+  std::unordered_map<TypeId, std::string_view> primitive_map_rev;
+
   std::unordered_set<std::string> used_names; // easier to have owning
 
   std::string out;

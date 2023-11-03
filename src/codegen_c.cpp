@@ -19,6 +19,37 @@ CFunInfo::CFunInfo(std::string mangled_name)
   return std::get<CStructInfo>(data);
 }
 
+// takes a raw literal (with \0, \n, etc. as raw characters, converts escaped)
+std::string to_escape_literal(std::string_view literal) {
+  std::string res{};  
+  res.reserve(literal.size());
+  for (char c : literal) {
+    switch (c) {
+    case '\0':
+      res += "\\0";
+      break;
+    case '\'':
+      res += "\\'";
+      break;
+    case '\"':
+      res += "\\\"";
+      break;
+    case '\\':
+      res += "\\\\";
+      break;
+    case '\t':
+      res += "\\t";
+      break;
+    case '\n':
+      res += "\\n";
+      break;
+    default:
+      res += c;
+    }
+  }
+  return res;
+}
+
 CodegenC::CodegenC(const TAST &tast) : tast(tast) {}
 
 std::string CodegenC::mangle_name(std::string_view name) {
@@ -98,12 +129,14 @@ void CodegenC::emit_types() {
       [&](const Primitive &p) {
         CTypeInfo ctype(primitive_map.at(p.name.str));
         ctype.data = CPrimitiveInfo{};
-        ctypes.push_back(ctype);;
+        ctypes.push_back(ctype);
+        
+        primitive_map_rev[i] = p.name.str;
       },
       [&](const TBuiltinType &bt) {
         CTypeInfo ctype(mangle_name(bt.concrete_type.to_string()));
         ctype.data = CBuiltinInfo{};
-        ctypes.push_back(ctype);;
+        ctypes.push_back(ctype);
         emit_type_forward_declare(ctype.mangled_name);
       },
       [&](const TEnumInst &inst) {
@@ -156,6 +189,11 @@ void CodegenC::emit_types() {
     }, ctypes[id].data);
     // clang-format on
   }
+
+  if (auto it = tast.primitive_map.find("Span[char]");
+      it != tast.primitive_map.end()) {
+    primitive_map_rev[it->second] = it->first;
+  }
 }
 
 void CodegenC::emit_type_forward_declare(std::string_view mangled_name) {
@@ -167,33 +205,28 @@ void CodegenC::emit_builtin_definition(TypeId id) {
   const TBuiltinType &bt = std::get<TBuiltinType>(tast.types[id].def);
   emit_line("struct {} {{", ctype.mangled_name);
   switch (bt.args.index()) {
-    case TBuiltinEnum::Ref: {
-      TypeId arg = std::get<TBuiltinEnum::Ref>(bt.args);
-      emit_line("  const {} *ptr;", ctypes[arg].mangled_name);
-    }
-    break;
-    case TBuiltinEnum::VarRef: {
-      TypeId arg = std::get<TBuiltinEnum::VarRef>(bt.args);
-      emit_line("  {} *ptr;", ctypes[arg].mangled_name);
-    }
-    break;
-    case TBuiltinEnum::Span: {
-      TypeId arg = std::get<TBuiltinEnum::Span>(bt.args);
-      emit_line("  const {} *ptr;", ctypes[arg].mangled_name);
-      emit_line("  size_t size;");
-    }
-    break;
-    case TBuiltinEnum::VarSpan: {
-      TypeId arg = std::get<TBuiltinEnum::VarSpan>(bt.args);
-      emit_line("  {} *ptr;", ctypes[arg].mangled_name);
-      emit_line("  size_t size;");
-    }
-    break;
-    case TBuiltinEnum::Array: {
-      auto [type_id, size] = std::get<TBuiltinEnum::Array>(bt.args);
-      emit_line("  {} data[{}];", ctypes[type_id].mangled_name, size);
-    }
-    break;
+  case TBuiltinEnum::Ref: {
+    TypeId arg = std::get<TBuiltinEnum::Ref>(bt.args);
+    emit_line("  const {} *ptr;", ctypes[arg].mangled_name);
+  } break;
+  case TBuiltinEnum::VarRef: {
+    TypeId arg = std::get<TBuiltinEnum::VarRef>(bt.args);
+    emit_line("  {} *ptr;", ctypes[arg].mangled_name);
+  } break;
+  case TBuiltinEnum::Span: {
+    TypeId arg = std::get<TBuiltinEnum::Span>(bt.args);
+    emit_line("  const {} *ptr;", ctypes[arg].mangled_name);
+    emit_line("  size_t size;");
+  } break;
+  case TBuiltinEnum::VarSpan: {
+    TypeId arg = std::get<TBuiltinEnum::VarSpan>(bt.args);
+    emit_line("  {} *ptr;", ctypes[arg].mangled_name);
+    emit_line("  size_t size;");
+  } break;
+  case TBuiltinEnum::Array: {
+    auto [type_id, size] = std::get<TBuiltinEnum::Array>(bt.args);
+    emit_line("  {} data[{}];", ctypes[type_id].mangled_name, size);
+  } break;
   }
   emit_line("}};");
 }
@@ -335,30 +368,90 @@ void CodegenC::emit_stmt(const TStmt &stmt) {
       }
     },
     [&](const std::unique_ptr<TWhile> &) { },
-    [&](const std::unique_ptr<TPrint> &) { },
+    [&](const std::unique_ptr<TPrint> &stmt) {
+      std::string res = "printf(";
+      std::string fmt_str;
+      size_t arg_idx = 0;
+
+      if (stmt->args.size() == 1) {
+        fmt_str = "{}";
+      }
+      else {
+        fmt_str = to_escape_literal(std::get<std::string>(stmt->args[0].as<std::unique_ptr<TLiteral>>()->val));
+        arg_idx = 1;
+      }
+
+      std::string c_fmt_str{};
+      c_fmt_str.reserve(fmt_str.size());
+      std::string args{};
+
+      for (size_t i = 0; i < fmt_str.size(); i++) {
+        if (fmt_str[i] == '{' && i + 1 < fmt_str.size()) {
+          if (fmt_str[i+1] == '{') {
+            c_fmt_str += '{';
+            i++;
+            continue;
+          }
+
+          if (fmt_str[i+1] != '}') { error("Internal error, unmatched '}'"); }
+
+          // found format {}, add arg
+          i++;
+          args += ',';
+          auto type_name = primitive_map_rev.at(stmt->args[arg_idx].type());
+          if (type_name == "bool") {
+            c_fmt_str += "%s";
+            args += emit_expr(stmt->args[arg_idx]);
+            args += "?\"true\":\"false\"";
+          }
+          else if (type_name == "Span[char]") {
+            c_fmt_str += "%s";
+            args += '(';
+            args += emit_expr(stmt->args[arg_idx]);
+            args += ").ptr";
+          }
+          else {
+            std::string_view specifier = "";
+            if (type_name == "i32") specifier = "%d";
+            else if (type_name == "i64") specifier = "%ld";
+            else if (type_name == "char") specifier = "%c";
+            else if (type_name == "f32") specifier = "%g";
+            else if (type_name == "f64") specifier = "%g";
+            c_fmt_str += specifier;
+            args += emit_expr(stmt->args[arg_idx]);
+          }
+          
+          arg_idx++;
+        }
+        else if (fmt_str[i] == '}') {
+          if (i + 1 >= fmt_str.size() || fmt_str[i+1] != '}') {
+            error("Internal error, unmatched '}'");
+          }
+          c_fmt_str += '}';
+          i++;
+        }
+        else if (fmt_str[i] == '%') {
+          c_fmt_str += "%%";
+        }
+        else {
+          c_fmt_str += fmt_str[i];
+        }
+      }
+      res += '"';
+      if (stmt->newline) {
+        c_fmt_str += "\\n";
+      }
+      res += c_fmt_str;
+      res += '"';
+      res += args;
+      res += ");";
+      emit_line("{}", res);
+    },
   }, stmt.node);
 
   loc += ';';
   emit_line("{}", loc);
   // clang-format on
-}
-
-// takes a raw literal (with \0, \n, etc. as raw characters, converts escaped)
-std::string to_escape_literal(std::string_view literal) {
-  std::string res{};
-  res.reserve(literal.size());
-  for (char c : literal) {
-    switch (c) {
-    case '\0': res += "\\0"; break;
-    case '\'': res += "\\'"; break;
-    case '\"': res += "\\\""; break;
-    case '\\': res += "\\\\"; break;
-    case '\t': res += "\\t"; break;
-    case '\n': res += "\\n"; break;
-    default: res += c;
-    }
-  }
-  return res;
 }
 
 std::string CodegenC::emit_expr(const TExpr &expr) {
@@ -546,6 +639,7 @@ std::string CodegenC::generate() {
   out = "";
   emit_include("<stdint.h>");
   emit_include("<stdbool.h>");
+  emit_include("<stdio.h>");
   emit_include("<sys/types.h>");
   emit_types();
   emit_functions();

@@ -138,7 +138,8 @@ GenericInst Parser::type_name() {
       params.push_back(type_name());
       match(COMMA);
       params.push_back(GenericInst{
-          expect(INTEGER, "Expect integer parameter for Array[T, N].").str});
+          expect(INTEGER, "Expect integer parameter for Array[T, N].").str
+      });
     } else {
       do {
         params.push_back(type_name());
@@ -255,7 +256,8 @@ std::unique_ptr<EnumDecl> Parser::enum_declaration() {
         // continue
       } else {
         TypedName variant{
-            expect(IDENTIFIER, "Expected identifier."), GenericInst{"unit"}};
+            expect(IDENTIFIER, "Expected identifier."), GenericInst{"unit"}
+        };
         if (!check(SEMICOLON)) {
           variant.gentype = type_name();
         }
@@ -383,10 +385,11 @@ Stmt Parser::statement() {
       }
       return Stmt{std::make_unique<Return>(expression_bp(0))};
     }
-    if (check(IDENTIFIER) && cur_token().str == "__print") {
+    if (check(IDENTIFIER) && (cur_token().str == "__print" || cur_token().str == "__println")) {
+      bool newline = cur_token().str == "__println";
       advance();
       expect(LEFT_PAREN, "Expected '(' after __print");
-      return Stmt{std::make_unique<Print>(argument_list())};
+      return Stmt{std::make_unique<Print>(argument_list(), newline)};
     }
     return expression_statement();
   } catch (ParseError &err) {
@@ -395,11 +398,27 @@ Stmt Parser::statement() {
   return Stmt{std::monostate{}};
 }
 
-std::unique_ptr<Block> Parser::block() {
-  std::vector<Stmt> res;
-  auto namesp = std::make_unique<Namespace>(namespaces.back());
-  namespaces.push_back(namesp.get());
-  try {
+  std::unique_ptr<Block> Parser::block() {
+    std::vector<Stmt> res;
+    auto namesp = std::make_unique<Namespace>(namespaces.back());
+    namespaces.push_back(namesp.get());
+    try {
+      while (!check(RIGHT_BRACE) && !is_at_end()) {
+        Stmt stmt = statement();
+        if (!stmt.is<std::monostate>()) {
+          res.emplace_back(std::move(stmt));
+        }
+      }
+      expect(RIGHT_BRACE, "Expected '}' after block.");
+    } catch (ParseError &err) {
+      namespaces.pop_back();
+    }
+    namespaces.pop_back();
+    return std::make_unique<Block>(std::move(res), std::move(namesp));
+  }
+
+  std::unique_ptr<Block> Parser::block(std::unique_ptr<Namespace> namesp) {
+    std::vector<Stmt> res;
     while (!check(RIGHT_BRACE) && !is_at_end()) {
       Stmt stmt = statement();
       if (!stmt.is<std::monostate>()) {
@@ -407,195 +426,201 @@ std::unique_ptr<Block> Parser::block() {
       }
     }
     expect(RIGHT_BRACE, "Expected '}' after block.");
-  } catch (ParseError &err) {
-    namespaces.pop_back();
+    return std::make_unique<Block>(std::move(res), std::move(namesp));
   }
-  namespaces.pop_back();
-  return std::make_unique<Block>(std::move(res), std::move(namesp));
-}
 
-std::unique_ptr<Block> Parser::block(std::unique_ptr<Namespace> namesp) {
-  std::vector<Stmt> res;
-  while (!check(RIGHT_BRACE) && !is_at_end()) {
-    Stmt stmt = statement();
-    if (!stmt.is<std::monostate>()) {
-      res.emplace_back(std::move(stmt));
+  // input: valid character literal from lexer
+  char Parser::parse_character(std::string_view literal) {
+    if (literal[1] != '\\') {
+      return literal[1];
     }
-  }
-  expect(RIGHT_BRACE, "Expected '}' after block.");
-  return std::make_unique<Block>(std::move(res), std::move(namesp));
-}
-
-// input: valid character literal from lexer
-char Parser::parse_character(std::string_view literal) {
-  if (literal[1] != '\\') {
-    return literal[1];
-  }
-  switch (literal[2]) {
-    case '\\': return '\\';
-    case 'n': return '\n';
-    case 't': return '\t';
-    case '\"': return '\"';
-    case '\'': return '\'';
-    case '0': return '\0';
-    default: error_prev(fmt::format("Expected valid escape character, got {}", literal[2]));
-  }
-  return '\0';
-}
-
-
-
-Stmt Parser::expression_statement() {
-  Expr expr = expression_bp(0);
-  switch (cur_token().lexeme) {
-  case Lexeme::EQUAL:
-  case Lexeme::PLUS_EQUAL:
-  case Lexeme::MINUS_EQUAL:
-  case Lexeme::STAR_EQUAL:
-  case Lexeme::SLASH_EQUAL:
-  case Lexeme::MODULO_EQUAL:
-  case Lexeme::AMPERSAND_EQUAL:
-  case Lexeme::BAR_EQUAL:
-  case Lexeme::CARET_EQUAL: {
-    AssignOp op = to_assignop(advance().lexeme);
-    if (op == AssignOp::ERROR) {
-      throw error_prev("How did this happen?");
+    switch (literal[2]) {
+    case '\\':
+      return '\\';
+    case 'n':
+      return '\n';
+    case 't':
+      return '\t';
+    case '\"':
+      return '\"';
+    case '\'':
+      return '\'';
+    case '0':
+      return '\0';
+    default:
+      error_prev(
+          fmt::format("Expected valid escape character, got {}", literal[2])
+      );
     }
-    Expr rhs = expression_bp(0);
-    return Stmt{std::make_unique<Assign>(
-        op, Expr{std::move(expr)}, Expr{std::move(rhs)}
-    )};
+    return '\0';
   }
-  default:
-    break;
-  }
-  expect(SEMICOLON, "Expect ';' (EOL) after expression.");
-  return Stmt{std::make_unique<Expression>(std::move(expr))};
-}
 
-// parses expression above minimum binding power argument
-// only consume tokens that are in expression!
-Expr Parser::expression_bp(int min_bp) {
-  Token token = advance();
-  std::optional<Expr> lhs = std::nullopt;
-  // parse LHS of expression
-  if (int prefix_bp = prefix_binding_power(token.lexeme); prefix_bp != -1) {
-    lhs = Expr{std::make_unique<Unary>(
-        to_unaryop(token.lexeme), expression_bp(prefix_bp)
-    )};
-  } else {
-    lhs = expression_lhs(token);
-  }
-  // LHS done, parse RHS
-
-  // parse postfix or infix with min_bp or greater
-  while (cur_token().lexeme != END_OF_FILE) {
-    token = cur_token();
-    if (int postfix_bp = postfix_binding_power(token.lexeme);
-        postfix_bp != -1) {
-      // is a postfix op
-      if (postfix_bp < min_bp) { // not enough binding power
-        break;
+  Stmt Parser::expression_statement() {
+    Expr expr = expression_bp(0);
+    switch (cur_token().lexeme) {
+    case Lexeme::EQUAL:
+    case Lexeme::PLUS_EQUAL:
+    case Lexeme::MINUS_EQUAL:
+    case Lexeme::STAR_EQUAL:
+    case Lexeme::SLASH_EQUAL:
+    case Lexeme::MODULO_EQUAL:
+    case Lexeme::AMPERSAND_EQUAL:
+    case Lexeme::BAR_EQUAL:
+    case Lexeme::CARET_EQUAL: {
+      AssignOp op = to_assignop(advance().lexeme);
+      if (op == AssignOp::ERROR) {
+        throw error_prev("How did this happen?");
       }
-
-      switch (token.lexeme) {
-      case LEFT_PAREN: {
-        advance();
-        std::vector<Expr> args = argument_list();
-        auto *var = std::get_if<std::unique_ptr<Variable>>(&lhs.value().node);
-        if (var != nullptr && (*var)->name.str == "__ref") {
-          if (args.size() != 1) {
-            error_prev("__ref can only be called on one argument.");
-          }
-          lhs = Expr{
-              std::make_unique<Unary>(UnaryOp::REF, Expr{std::move(args[0])})};
-        } else if (var != nullptr && (*var)->name.str == "__varref") {
-          if (args.size() != 1) {
-            error_prev("__varref can only be called on one argument.");
-          }
-          lhs = Expr{
-            std::make_unique<Unary>(UnaryOp::VARREF, Expr{std::move(args[0])})};
-        } else if (var != nullptr && (*var)->name.str == "__deref") {
-          if (args.size() != 1) {
-            error_prev("__deref can only be called on one argument.");
-          }
-          lhs = Expr{std::make_unique<Unary>(
-              UnaryOp::DEREF, Expr{std::move(args[0])}
-          )};
-        } else {
-          lhs = Expr{std::make_unique<FunCall>(
-              Expr{std::move(lhs.value())}, std::move(args)
-          )};
-        }
-        break;
-      }
-      case DOT: {
-        advance();
-        Token ident = expect(IDENTIFIER, "Expected identifier after '.'.");
-        lhs =
-            Expr{std::make_unique<DotRef>(Expr{std::move(lhs.value())}, ident)};
-        break;
-      }
-      default:
-        advance();
-        break;
-      }
-      continue;
-    }
-
-    if (int infix_bp = infix_binding_power(token.lexeme); infix_bp != -1) {
-      // is an infix op
-      if (infix_bp < min_bp) {
-        break;
-      }
-      advance();
-      BinaryOp op = to_binop(token.lexeme);
-      // recursive call with slightly higher binding power for
-      // left-associativity
-      auto rhs = expression_bp(infix_bp + 1);
-      // if assign was an Expr, would do switch here
-      lhs = Expr{std::make_unique<Binary>(
-          op, Expr{std::move(lhs.value())}, Expr{std::move(rhs)}
+      Expr rhs = expression_bp(0);
+      return Stmt{std::make_unique<Assign>(
+          op, Expr{std::move(expr)}, Expr{std::move(rhs)}
       )};
-      continue;
     }
-    // not postfix or infix, end
-    break;
+    default:
+      break;
+    }
+    expect(SEMICOLON, "Expect ';' (EOL) after expression.");
+    return Stmt{std::make_unique<Expression>(std::move(expr))};
   }
 
-  if (!lhs.has_value()) {
-    throw error_prev("Expected expression.");
-  }
-  return std::move(lhs.value());
-}
+  // parses expression above minimum binding power argument
+  // only consume tokens that are in expression!
+  Expr Parser::expression_bp(int min_bp) {
+    Token token = advance();
+    std::optional<Expr> lhs = std::nullopt;
+    // parse LHS of expression
+    if (int prefix_bp = prefix_binding_power(token.lexeme); prefix_bp != -1) {
+      lhs = Expr{std::make_unique<Unary>(
+          to_unaryop(token.lexeme), expression_bp(prefix_bp)
+      )};
+    } else {
+      lhs = expression_lhs(token);
+    }
+    // LHS done, parse RHS
 
-// converts a valid string literal with escape sequences and enclosing ""
-// to literal without escape sequences
-std::string to_raw_string(std::string_view literal) {
-  std::string res{};
-  res.reserve(literal.size());
-  for (size_t i = 1; i + 1 < literal.size(); i++) {
-    switch (literal[i]) {
+    // parse postfix or infix with min_bp or greater
+    while (cur_token().lexeme != END_OF_FILE) {
+      token = cur_token();
+      if (int postfix_bp = postfix_binding_power(token.lexeme);
+          postfix_bp != -1) {
+        // is a postfix op
+        if (postfix_bp < min_bp) { // not enough binding power
+          break;
+        }
+
+        switch (token.lexeme) {
+        case LEFT_PAREN: {
+          advance();
+          std::vector<Expr> args = argument_list();
+          auto *var = std::get_if<std::unique_ptr<Variable>>(&lhs.value().node);
+          if (var != nullptr && (*var)->name.str == "__ref") {
+            if (args.size() != 1) {
+              error_prev("__ref can only be called on one argument.");
+            }
+            lhs = Expr{
+                std::make_unique<Unary>(UnaryOp::REF, Expr{std::move(args[0])})
+            };
+          } else if (var != nullptr && (*var)->name.str == "__varref") {
+            if (args.size() != 1) {
+              error_prev("__varref can only be called on one argument.");
+            }
+            lhs = Expr{std::make_unique<Unary>(
+                UnaryOp::VARREF, Expr{std::move(args[0])}
+            )};
+          } else if (var != nullptr && (*var)->name.str == "__deref") {
+            if (args.size() != 1) {
+              error_prev("__deref can only be called on one argument.");
+            }
+            lhs = Expr{std::make_unique<Unary>(
+                UnaryOp::DEREF, Expr{std::move(args[0])}
+            )};
+          } else {
+            lhs = Expr{std::make_unique<FunCall>(
+                Expr{std::move(lhs.value())}, std::move(args)
+            )};
+          }
+          break;
+        }
+        case DOT: {
+          advance();
+          Token ident = expect(IDENTIFIER, "Expected identifier after '.'.");
+          lhs =
+              Expr{std::make_unique<DotRef>(Expr{std::move(lhs.value())}, ident)
+              };
+          break;
+        }
+        default:
+          advance();
+          break;
+        }
+        continue;
+      }
+
+      if (int infix_bp = infix_binding_power(token.lexeme); infix_bp != -1) {
+        // is an infix op
+        if (infix_bp < min_bp) {
+          break;
+        }
+        advance();
+        BinaryOp op = to_binop(token.lexeme);
+        // recursive call with slightly higher binding power for
+        // left-associativity
+        auto rhs = expression_bp(infix_bp + 1);
+        // if assign was an Expr, would do switch here
+        lhs = Expr{std::make_unique<Binary>(
+            op, Expr{std::move(lhs.value())}, Expr{std::move(rhs)}
+        )};
+        continue;
+      }
+      // not postfix or infix, end
+      break;
+    }
+
+    if (!lhs.has_value()) {
+      throw error_prev("Expected expression.");
+    }
+    return std::move(lhs.value());
+  }
+
+  // converts a valid string literal with escape sequences and enclosing ""
+  // to literal without escape sequences
+  std::string to_raw_string(std::string_view literal) {
+    std::string res{};
+    res.reserve(literal.size());
+    for (size_t i = 1; i + 1 < literal.size(); i++) {
+      switch (literal[i]) {
       case '\\': {
         i++;
         switch (literal[i]) {
-          case '0': res += '\0'; break;
-          case '\'': res += '\''; break;
-          case '"': res += '"'; break;
-          case 't': res += '\t'; break;
-          case 'n': res += '\n'; break;
+        case '0':
+          res += '\0';
+          break;
+        case '\'':
+          res += '\'';
+          break;
+        case '"':
+          res += '"';
+          break;
+        case 't':
+          res += '\t';
+          break;
+        case 'n':
+          res += '\n';
+          break;
         }
         break;
       }
-      default: res += literal[i]; break;
+      default:
+        res += literal[i];
+        break;
+      }
     }
+    return res;
   }
-  return res;
-}
 
-Expr Parser::expression_lhs(const Token &token) {
-  switch (token.lexeme) {
-  // clang-format off
+  Expr Parser::expression_lhs(const Token &token) {
+    switch (token.lexeme) {
+      // clang-format off
     case TRUE: return Expr{std::make_unique<Literal>(true)};
     case FALSE: return Expr{std::make_unique<Literal>(false)};
     case INTEGER: return Expr{std::make_unique<Literal>(std::stoi(std::string(token.str)))};
@@ -633,119 +658,119 @@ Expr Parser::expression_lhs(const Token &token) {
       return lhs;
     }
     default: throw error_prev(fmt::format("Unexpected token in expression: {}.", to_string(token.lexeme)));
-    // clang-format on
-  }
-}
-
-enum BindingPower {
-  NONE,
-  OR,         // ||
-  AND,        // &&
-  EQUALITY,   // == !=
-  COMPARISON, // < > <= >=
-  BITWISE,    // & | ^ << >>
-  TERM,       // + -
-  FACTOR,     // * /
-  UNARY,      // ! + -
-  CALL,       // . ()
-  PRIMARY,
-  POSTFIX,
-};
-
-int Parser::prefix_binding_power(Lexeme l) {
-  switch (l) {
-  case PLUS:
-  case MINUS:
-  case BANG:
-    return UNARY;
-  default:
-    return -1;
-  }
-}
-
-int Parser::infix_binding_power(Lexeme l) {
-  switch (l) {
-  case BAR_BAR:
-    return OR;
-  case AMPERSAND_AMPERSAND:
-    return AND;
-  case EQUAL_EQUAL:
-  case BANG_EQUAL:
-    return EQUALITY;
-  case LESS:
-  case GREATER:
-  case LESS_EQUAL:
-  case GREATER_EQUAL:
-    return COMPARISON;
-  case AMPERSAND:
-  case BAR:
-  case CARET:
-  case LESS_LESS:
-  case GREATER_GREATER:
-    return BITWISE;
-  case PLUS:
-  case MINUS:
-    return TERM;
-  case STAR:
-  case SLASH:
-  case MODULO:
-    return FACTOR;
-  case DOT:
-  case LEFT_PAREN:
-    return CALL;
-  default:
-    return -1;
-  }
-}
-
-int Parser::postfix_binding_power(Lexeme l) {
-  switch (l) {
-  case DOT:
-  case DOT_DOT:
-  case DOLLAR:
-  case LEFT_PAREN:
-    return POSTFIX;
-  default:
-    return -1;
-  }
-}
-
-std::vector<Expr> Parser::argument_list() {
-  std::vector<Expr> args;
-  if (!check(RIGHT_PAREN)) {
-    // named arguments could go here
-    do {
-      args.push_back(expression_bp(0));
-    } while (match(COMMA));
-  }
-  expect(RIGHT_PAREN, "Expect ')' after arguments.");
-  return args;
-}
-
-AST Parser::parse() {
-  std::vector<Declaration> decls;
-  auto globals = std::make_unique<Namespace>(nullptr);
-  namespaces.push_back(globals.get());
-
-  std::vector<std::unique_ptr<Primitive>> primitives;
-  std::vector<std::unique_ptr<BuiltinType>> builtin_types;
-
-  for (auto name : default_primitives) {
-    primitives.push_back(std::make_unique<Primitive>(
-        Token::make_builtin(name, Lexeme::IDENTIFIER)
-    ));
-    add_name<Primitive *>(primitives.back()->name, primitives.back().get());
+      // clang-format on
+    }
   }
 
-  // if (globals.names.contains(name)) {
-  //   fmt::print(stderr, "Globals contained name '{}' matching builtin.\n",
-  // name); abort();
-  // }
+  enum BindingPower {
+    NONE,
+    OR,         // ||
+    AND,        // &&
+    EQUALITY,   // == !=
+    COMPARISON, // < > <= >=
+    BITWISE,    // & | ^ << >>
+    TERM,       // + -
+    FACTOR,     // * /
+    UNARY,      // ! + -
+    CALL,       // . ()
+    PRIMARY,
+    POSTFIX,
+  };
 
-  // struct Ref[T] {
-  //   T *ptr;
-  // }
-  // clang-format off
+  int Parser::prefix_binding_power(Lexeme l) {
+    switch (l) {
+    case PLUS:
+    case MINUS:
+    case BANG:
+      return UNARY;
+    default:
+      return -1;
+    }
+  }
+
+  int Parser::infix_binding_power(Lexeme l) {
+    switch (l) {
+    case BAR_BAR:
+      return OR;
+    case AMPERSAND_AMPERSAND:
+      return AND;
+    case EQUAL_EQUAL:
+    case BANG_EQUAL:
+      return EQUALITY;
+    case LESS:
+    case GREATER:
+    case LESS_EQUAL:
+    case GREATER_EQUAL:
+      return COMPARISON;
+    case AMPERSAND:
+    case BAR:
+    case CARET:
+    case LESS_LESS:
+    case GREATER_GREATER:
+      return BITWISE;
+    case PLUS:
+    case MINUS:
+      return TERM;
+    case STAR:
+    case SLASH:
+    case MODULO:
+      return FACTOR;
+    case DOT:
+    case LEFT_PAREN:
+      return CALL;
+    default:
+      return -1;
+    }
+  }
+
+  int Parser::postfix_binding_power(Lexeme l) {
+    switch (l) {
+    case DOT:
+    case DOT_DOT:
+    case DOLLAR:
+    case LEFT_PAREN:
+      return POSTFIX;
+    default:
+      return -1;
+    }
+  }
+
+  std::vector<Expr> Parser::argument_list() {
+    std::vector<Expr> args;
+    if (!check(RIGHT_PAREN)) {
+      // named arguments could go here
+      do {
+        args.push_back(expression_bp(0));
+      } while (match(COMMA));
+    }
+    expect(RIGHT_PAREN, "Expect ')' after arguments.");
+    return args;
+  }
+
+  AST Parser::parse() {
+    std::vector<Declaration> decls;
+    auto globals = std::make_unique<Namespace>(nullptr);
+    namespaces.push_back(globals.get());
+
+    std::vector<std::unique_ptr<Primitive>> primitives;
+    std::vector<std::unique_ptr<BuiltinType>> builtin_types;
+
+    for (auto name : default_primitives) {
+      primitives.push_back(std::make_unique<Primitive>(
+          Token::make_builtin(name, Lexeme::IDENTIFIER)
+      ));
+      add_name<Primitive *>(primitives.back()->name, primitives.back().get());
+    }
+
+    // if (globals.names.contains(name)) {
+    //   fmt::print(stderr, "Globals contained name '{}' matching builtin.\n",
+    // name); abort();
+    // }
+
+    // struct Ref[T] {
+    //   T *ptr;
+    // }
+    // clang-format off
   builtin_types.emplace_back(std::make_unique<BuiltinType>(
       Token::make_builtin("Ref", Lexeme::IDENTIFIER), GenericName{"Ref", {"T"}}
   ));
@@ -770,19 +795,19 @@ AST Parser::parse() {
       Token::make_builtin("Array", Lexeme::IDENTIFIER), GenericName{"Array", {"T", "N"}}
   ));
   add_name<BuiltinType *>(builtin_types.back()->name, builtin_types.back().get());
-  // clang-format on
+    // clang-format on
 
-  while (!is_at_end()) {
-    Stmt decl = toplevel_declaration();
-    if (!decl.is<std::monostate>()) {
-      decls.emplace_back(std::move(decl.as<Declaration>()));
+    while (!is_at_end()) {
+      Stmt decl = toplevel_declaration();
+      if (!decl.is<std::monostate>()) {
+        decls.emplace_back(std::move(decl.as<Declaration>()));
+      }
     }
-  }
 
-  return AST(
-      std::move(decls), std::move(primitives), std::move(builtin_types),
-      std::move(globals)
-  );
-}
+    return AST(
+        std::move(decls), std::move(primitives), std::move(builtin_types),
+        std::move(globals)
+    );
+  }
 
 } // namespace cinnabar

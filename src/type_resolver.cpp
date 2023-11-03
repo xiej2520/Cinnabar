@@ -220,6 +220,12 @@ TypeId TypeResolver::add_type(
         }
         types.push_back(TTypeInst{TBuiltinType{type, {}}});
         types[res].as<TBuiltinType>().args.emplace<Span>(get_typeid(type.args[0]));
+
+        // add Span[char] to primitive map
+        if (type.args[0].to_string() == "char") {
+          primitive_map["Span[char]"] = res;
+        }
+
       }
       else if (type.base_name == "VarSpan") {
         if (type.args.size() != 1) {
@@ -361,14 +367,15 @@ TypeId TypeResolver::find_unary_op(UnaryOp op, const TExpr &operand) {
       error("Operand of __ref is not a place expression.");
     }
     return get_typeid(GenericInst{
-        "Ref", std::vector<GenericInst>{types[operand_type].concrete_type()}});
+        "Ref", std::vector<GenericInst>{types[operand_type].concrete_type()}
+    });
   case UnaryOp::VARREF:
     if (!operand.is_place_expr()) {
       error("Operand of __varref is not a place expression.");
     }
     return get_typeid(GenericInst{
-        "VarRef", std::vector<GenericInst>{types[operand_type].concrete_type()}}
-    );
+        "VarRef", std::vector<GenericInst>{types[operand_type].concrete_type()}
+    });
   case UnaryOp::DEREF: {
     const TTypeInst &type = types[operand_type];
     if (const TBuiltinType *bt = std::get_if<TBuiltinType>(&type.def); bt) {
@@ -508,11 +515,65 @@ std::optional<TStmt> TypeResolver::resolve(Stmt &stmt) {
     [&](std::unique_ptr<While> &) -> std::optional<TStmt> { return std::nullopt; },
     [&](std::unique_ptr<Print> &stmt) -> std::optional<TStmt> {
       auto res = std::make_unique<TPrint>();
+      res->newline = stmt->newline;
       auto span_id = get_typeid(GenericInst{"Span", {GenericInst{"char"}}});
-      (void) span_id;
+      auto bool_id = get_typeid(GenericInst{"bool"});
       for (auto &expr : stmt->args) {
         res->args.push_back(resolve(expr));
+        auto type_id = res->args.back().type();
+        if (!numeric_primitive_ids.contains(type_id) && type_id != span_id && type_id != bool_id) {
+          error(fmt::format("Unexpected type id in print: {}", type_id.value));
+        }
       }
+
+      if (res->args.empty()) {
+        error("__print must have 1 or more arguments");
+      }
+      if (res->args.size() > 1) {
+        if (res->args.front().type() == span_id) {
+          // if more than one arg, format string must be a literal so it can be
+          // type checked
+          if (!res->args.front().is<std::unique_ptr<TLiteral>>()) {
+            error("__print must have literal format string with more than one argument");
+          }
+          std::string_view fmt_str = std::get<std::string>(res->args.front().as<std::unique_ptr<TLiteral>>()->val);
+
+          // validate format string (number of arguments)
+          size_t arg_idx = 1; // index of format
+          for (size_t i = 0; i < fmt_str.size(); i++) {
+            if (fmt_str[i] == '{') {
+              if (i + 1 >= fmt_str.size()) {
+                error("Unclosed '{' in format string");
+              }
+              if (fmt_str[i+1] == '{') {
+                i++;
+              }
+              else if (fmt_str[i+1] == '}') {
+                arg_idx++;
+                i++;
+              }
+            }
+            else if (fmt_str[i] == '}') {
+              if (i + 1 >= fmt_str.size() || fmt_str[i+1] != '}') {
+                error("Unmatched '}' in format string");
+              }
+              i++;
+            }
+          }
+          if (arg_idx != res->args.size()) {
+            error(fmt::format("Expected {} format arguments, got {}", arg_idx - 1, res->args.size() - 1));
+          }
+
+        }
+        else {
+          // more than 1 arg, first arg isn't Span[char]
+          error(fmt::format(
+            "__print with more than 1 argument must have Span[char] as first argument, found {}",
+            res->args.front().type().value));
+        }
+      }
+      
+      
       return TStmt{std::move(res)};
     }
   }, stmt.node);

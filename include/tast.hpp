@@ -174,6 +174,7 @@ struct TWhile {};
 
 struct TPrint {
   std::vector<TExpr> args;
+  bool newline;
 };
 
 using TStmtVariant = std::variant<
@@ -243,6 +244,7 @@ struct TAST {
   std::vector<TFunInst> functions;
   std::vector<TTypeInst> types;
   std::vector<TypeId> type_topo_order;
+  // TypeId for primitive types, as well as Span[char]
   std::unordered_map<std::string_view, TypeId> primitive_map;
   
   std::vector<std::unique_ptr<TVarInst>> globals;

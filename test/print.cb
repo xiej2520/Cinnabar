@@ -6,9 +6,18 @@ fun main() {
   
   // print an int, double, char, string
   __print(a)
+  __println(b)
   __print(s)
-  __print("ABC")
+  __println(s)
+  __print("ABC\n")
+  
+  // print a bool
+  __print(true)
+  __println(false)
+  __println("{} {}", true, false)
 
   // print a formatted string
   __print("{}, {}\n", s, a + b)
+  __println("|\\{}\n{}{{}}xz|", s, a + b)
+  
 }

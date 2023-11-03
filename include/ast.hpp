@@ -279,6 +279,7 @@ struct While {};
 
 struct Print {
   std::vector<Expr> args;
+  bool newline;
 };
 
 using StmtVariant = std::variant<
