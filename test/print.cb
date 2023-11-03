@@ -1,3 +1,17 @@
+//#[test]
+//4539
+//4.5938
+//abcdeabcde
+//ABC
+//truefalse
+//true false
+//abcde, 84
+//|\abcde
+//84{}xz|
+//%%%%true%%%false%
+//
+//\	'""1\false\\%\pie
+//
 
 fun main() {
   let s = "abcde"
@@ -7,6 +21,7 @@ fun main() {
   // print an int, double, char, string
   __print(a)
   __println(b)
+  __println(4.59380)
   __print(s)
   __println(s)
   __print("ABC\n")
@@ -19,5 +34,11 @@ fun main() {
   // print a formatted string
   __print("{}, {}\n", s, a + b)
   __println("|\\{}\n{}{{}}xz|", s, a + b)
+  
+  // check escape sequences
+  __print("%%")
+  __println("%%{}%%%{}%", true, false)
+  __print("\n\\\t\'\"\"{}\\{}\\", 1, false)
+  __println("\\%\\{}", "pie")
   
 }

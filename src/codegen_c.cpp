@@ -334,7 +334,7 @@ void CodegenC::emit_function_definition(FunId id) {
 void CodegenC::emit_stmt(const TStmt &stmt) {
   //// first traverse, find temporary assignment targets
   // preprocess(stmt);
-  std::string loc;
+  std::string loc{};
   // clang-format off
   std::visit(overload{
     [&](const std::unique_ptr<TAssign> &stmt) {
@@ -369,7 +369,7 @@ void CodegenC::emit_stmt(const TStmt &stmt) {
     },
     [&](const std::unique_ptr<TWhile> &) { },
     [&](const std::unique_ptr<TPrint> &stmt) {
-      std::string res = "printf(";
+      loc += "printf(";
       std::string fmt_str;
       size_t arg_idx = 0;
 
@@ -437,15 +437,14 @@ void CodegenC::emit_stmt(const TStmt &stmt) {
           c_fmt_str += fmt_str[i];
         }
       }
-      res += '"';
+      loc += '"';
       if (stmt->newline) {
         c_fmt_str += "\\n";
       }
-      res += c_fmt_str;
-      res += '"';
-      res += args;
-      res += ");";
-      emit_line("{}", res);
+      loc += c_fmt_str;
+      loc += '"';
+      loc += args;
+      loc += ")";
     },
   }, stmt.node);
 

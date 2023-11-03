@@ -42,8 +42,9 @@ char Lexer::advance() {
   return source[cur_index++];
 }
 bool Lexer::match_advance(char expect) {
-  if (is_at_end() || source[cur_index] != expect)
+  if (is_at_end() || source[cur_index] != expect) {
     return false;
+  }
   col++;
   advance();
   return true;
@@ -57,13 +58,11 @@ char Lexer::next_char() {
              : source[cur_index + 1];
 }
 
-Token &Lexer::prev_token() {
-  return tokens.back();
-}
+Token &Lexer::prev_token() { return tokens.back(); }
 
 void Lexer::pop_added_semicolons() {
   while (!tokens.empty() && tokens.back().lexeme == SEMICOLON &&
-      tokens.back().str == "\n") {
+         tokens.back().str == "\n") {
     tokens.pop_back();
   }
 }
@@ -98,30 +97,38 @@ void Lexer::read_character() {
   add_token(CHARACTER);
 }
 
+// reads string starting from character after opening "
 void Lexer::read_string() {
-  while (cur_char() != '"' && !is_at_end()) {
-    if (cur_char() == '\\') {
-      advance();
-      // unfinished
-      switch (cur_char()) {
-      case 't':
-      case 'n':
-      case '\\':
-        break;
-      case '"':
-        advance();
-      }
-    }
-    if (cur_char() == '\n') {
-      error("Cannot have newlines in string literal.");
-      break;
-    }
-    advance();
-  }
   if (is_at_end()) {
     error("Unterminated string");
   }
-  advance(); // closing "
+  for (char c = advance(); c != '"'; c = advance()) {
+    switch (c) {
+      case '\\':
+        c = advance();
+        switch (c) {
+          case '0':
+          case 't':
+          case 'n':
+          case '\\':
+          case '\'':
+          case '"':
+            break;
+          default:
+            error(fmt::format("Unrecognized escape character '\\{}'", cur_char()));
+        }
+      break;
+      case '\n':
+        error("Cannot have newlines in string literal");
+      break;
+      default:
+      break;
+    }
+    if (is_at_end()) {
+      error("Unterminated string");
+    }
+  }
+  //advance(); // closing "
   add_token(STRING);
 }
 
@@ -131,8 +138,9 @@ void Lexer::read_number() {
   }
   if (cur_char() == '.' && isdigit(next_char())) {
     advance();
-    while (std::isdigit(cur_char()))
+    while (std::isdigit(cur_char())) {
       advance();
+    }
     add_token(DECIMAL);
     return;
   }
@@ -156,7 +164,7 @@ std::string_view Lexer::srcsubstr(int start, int end) {
 }
 
 void Lexer::add_token(Lexeme l) {
-  std::string_view strv = srcsubstr(start_index, cur_index - 1); 
+  std::string_view strv = srcsubstr(start_index, cur_index - 1);
   tokens.emplace_back(strv, l, line, col - strv.size());
 }
 
@@ -278,7 +286,10 @@ std::string Lexer::token_repr() {
   }
   for (size_t i = 0; i < tokens.size(); i++) {
     Token &token = tokens[i];
-    res += fmt::format("{}[{}]{} ", to_string(token.lexeme), token.str == "\n" ? "\\n" : token.str, token.col);
+    res += fmt::format(
+        "{}[{}]{} ", to_string(token.lexeme),
+        token.str == "\n" ? "\\n" : token.str, token.col
+    );
     if (i != tokens.size() - 1 && tokens[i + 1].line != token.line) {
       res += fmt::format("\nLine {}: ", tokens[i + 1].line);
     }
