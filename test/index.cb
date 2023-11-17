@@ -1,0 +1,82 @@
+
+fun main() i32 {
+  var arr Array[i32, 8]
+  
+  arr[0] = 0
+  arr[1] = 1
+  arr[2] = 2
+  arr[3] = 3
+  arr[4] = 4
+  arr[5] = 8
+  arr[6] = 16
+  arr[7] = 32
+  
+  let x = arr[0]
+
+  __println(arr[0])
+  __println("arr: [{}, {}, {}, {}, {}, {}, {}, {}]", arr[0], arr[1], arr[2], arr[3], arr[4], arr[5], arr[6], arr[7])
+
+  var arr4d Array[Array[Array[Array[i32, 1], 2], 4], 8]
+
+  arr4d[7][3][1][0] = -1
+
+  let a = arr4d[7][3][1][0]
+  let b = arr4d[7][3][1]
+  let c = arr4d[7][3]
+  let d = arr4d[7]
+  let e = arr4d
+  
+  fun rec_set(arr4d VarRef[Array[Array[Array[Array[i32, 1], 2], 4], 8]], i i32, j i32, k i32, l i32) {
+    if i == 8 {
+      return
+    }
+    if j == 4 {
+      rec_set(arr4d, i + 1, 0, 0, 0)
+      return
+    }
+    if k == 2 {
+      rec_set(arr4d, i, j + 1, 0, 0)
+      return
+    }
+    if l == 1 {
+      rec_set(arr4d, i, j, k + 1, 0)
+      return
+    }
+    __deref(arr4d)[i][j][k][l] = 4 * i + 2 * j + 1 * k + l
+    rec_set(arr4d, i, j, k, l + 1)
+  }
+  
+  rec_set(__varref(arr4d), 0, 0, 0, 0)
+  
+  fun rec_print(arr4d Ref[Array[Array[Array[Array[i32, 1], 2], 4], 8]], i i32, j i32, k i32, l i32) {
+    if i == 8 {
+      return
+    }
+    if j == 4 {
+      rec_print(arr4d, i + 1, 0, 0, 0)
+      return
+    }
+    if k == 2 {
+      rec_print(arr4d, i, j + 1, 0, 0)
+      return
+    }
+    if l == 1 {
+      rec_print(arr4d, i, j, k + 1, 0)
+      return
+    }
+    __println("({}, {}, {}, {}): {}", i, j, k, l, __deref(arr4d)[i][j][k][l])
+    rec_print(arr4d, i, j, k, l + 1)
+  }
+  
+  rec_print(__ref(arr4d), 0, 0, 0, 0)
+  __println(arr4d[arr[4]][arr[2]][1][0]) // 21
+
+
+  //let arr4d Array![Array![Array![Array![i32, 4], 8], 16], 32]
+  //__print(arr.[0])
+  //__print(arr(0))
+  //
+  //__print(arr4d.[0].[1].[2].[n])
+  //__print(arr4d(0)(1)(2)(n))
+  
+}

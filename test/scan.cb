@@ -1,0 +1,13 @@
+
+fun main() i32 {
+  let i i32
+  let d f64
+  scan("{} {}", __varref(i), __varref(d))
+
+  let str Array[char, 32]
+  scan("{}", __varref(str))
+  
+  input("{}", __varref(i))
+  
+  getline(__varref(str))
+}

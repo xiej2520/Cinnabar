@@ -71,6 +71,7 @@ class Parser {
   int postfix_binding_power(Lexeme l);
 
   std::vector<Expr> argument_list();
+  std::vector<Expr> index_argument_list();
 
 public:
   Parser(std::string source);

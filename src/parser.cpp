@@ -542,6 +542,12 @@ Expr Parser::expression_bp(int min_bp) {
         }
         break;
       }
+      case LEFT_BRACKET: {
+        advance();
+        std::vector<Expr> args = index_argument_list();
+        lhs = Expr{std::make_unique<Index>(std::move(lhs.value()), std::move(args))};
+        break;
+      }
       case DOT: {
         advance();
         Token ident = expect(IDENTIFIER, "Expected identifier after '.'.");
@@ -655,6 +661,7 @@ Expr Parser::expression_lhs(const Token &token) {
   }
   case ELSE: throw error_prev("Unexpected 'else' with no preceding 'if'.");
   case LEFT_BRACE: return Expr{block()};
+  // lone '(', not a call
   case LEFT_PAREN: {
     auto lhs = expression_bp(0);
     expect(RIGHT_PAREN, "Expected ')' following open '('.");
@@ -732,6 +739,7 @@ int Parser::postfix_binding_power(Lexeme l) {
   case DOT_DOT:
   case DOLLAR:
   case LEFT_PAREN:
+  case LEFT_BRACKET:
     return POSTFIX;
   default:
     return -1;
@@ -747,6 +755,17 @@ std::vector<Expr> Parser::argument_list() {
     } while (match(COMMA));
   }
   expect(RIGHT_PAREN, "Expect ')' after arguments.");
+  return args;
+}
+
+std::vector<Expr> Parser::index_argument_list() {
+  std::vector<Expr> args;
+  if (!check(RIGHT_BRACKET)) {
+    do {
+      args.push_back(expression_bp(0));
+    } while (match(COMMA));
+  }
+  expect(RIGHT_BRACKET, "Expect ']' after arguments.");
   return args;
 }
 
@@ -774,30 +793,30 @@ AST Parser::parse() {
   //   T *ptr;
   // }
   // clang-format off
-builtin_types.emplace_back(std::make_unique<BuiltinType>(
-    Token::make_builtin("Ref", Lexeme::IDENTIFIER), GenericName{"Ref", {"T"}}
-));
-add_name<BuiltinType *>(builtin_types.back()->name, builtin_types.back().get());
+  builtin_types.emplace_back(std::make_unique<BuiltinType>(
+      Token::make_builtin("Ref", Lexeme::IDENTIFIER), GenericName{"Ref", {"T"}}
+  ));
+  add_name<BuiltinType *>(builtin_types.back()->name, builtin_types.back().get());
 
-builtin_types.emplace_back(std::make_unique<BuiltinType>(
-    Token::make_builtin("VarRef", Lexeme::IDENTIFIER), GenericName{"VarRef", {"T"}}
-));
-add_name<BuiltinType *>(builtin_types.back()->name, builtin_types.back().get());
+  builtin_types.emplace_back(std::make_unique<BuiltinType>(
+      Token::make_builtin("VarRef", Lexeme::IDENTIFIER), GenericName{"VarRef", {"T"}}
+  ));
+  add_name<BuiltinType *>(builtin_types.back()->name, builtin_types.back().get());
 
-builtin_types.emplace_back(std::make_unique<BuiltinType>(
-    Token::make_builtin("Span", Lexeme::IDENTIFIER), GenericName{"Span", {"T"}}
-));
-add_name<BuiltinType *>(builtin_types.back()->name, builtin_types.back().get());
+  builtin_types.emplace_back(std::make_unique<BuiltinType>(
+      Token::make_builtin("Span", Lexeme::IDENTIFIER), GenericName{"Span", {"T"}}
+  ));
+  add_name<BuiltinType *>(builtin_types.back()->name, builtin_types.back().get());
 
-builtin_types.emplace_back(std::make_unique<BuiltinType>(
-    Token::make_builtin("VarSpan", Lexeme::IDENTIFIER), GenericName{"VarSpan", {"T"}}
-));
-add_name<BuiltinType *>(builtin_types.back()->name, builtin_types.back().get());
+  builtin_types.emplace_back(std::make_unique<BuiltinType>(
+      Token::make_builtin("VarSpan", Lexeme::IDENTIFIER), GenericName{"VarSpan", {"T"}}
+  ));
+  add_name<BuiltinType *>(builtin_types.back()->name, builtin_types.back().get());
 
-builtin_types.emplace_back(std::make_unique<BuiltinType>(
-    Token::make_builtin("Array", Lexeme::IDENTIFIER), GenericName{"Array", {"T", "N"}}
-));
-add_name<BuiltinType *>(builtin_types.back()->name, builtin_types.back().get());
+  builtin_types.emplace_back(std::make_unique<BuiltinType>(
+      Token::make_builtin("Array", Lexeme::IDENTIFIER), GenericName{"Array", {"T", "N"}}
+  ));
+  add_name<BuiltinType *>(builtin_types.back()->name, builtin_types.back().get());
   // clang-format on
 
   while (!is_at_end()) {

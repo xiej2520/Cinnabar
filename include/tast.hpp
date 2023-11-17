@@ -38,6 +38,7 @@ struct TBlock;
 struct TDotRef;
 struct TFunCall;
 struct TIf;
+struct TIndex;
 struct TLiteral;
 struct TVariable;
 struct TUnary;
@@ -72,8 +73,8 @@ struct TNamespace {
 using TExprVariant = std::variant<
     std::monostate,
     std::unique_ptr<TBinary>, std::unique_ptr<TBlock>, std::unique_ptr<TDotRef>,
-    std::unique_ptr<TFunCall>, std::unique_ptr<TIf>, std::unique_ptr<TLiteral>,
-    std::unique_ptr<TUnary>, std::unique_ptr<TVariable>>;
+    std::unique_ptr<TFunCall>, std::unique_ptr<TIf>, std::unique_ptr<TIndex>,
+    std::unique_ptr<TLiteral>, std::unique_ptr<TUnary>, std::unique_ptr<TVariable>>;
 
 struct TExpr {
   TExprVariant node;
@@ -125,6 +126,12 @@ struct TIf {
   std::vector<std::unique_ptr<TBranch>> branches;
   
   bool has_else();
+};
+
+struct TIndex {
+  TypeId type = -1;
+  TExpr callee;
+  TExpr arg; // only handle one arg for now
 };
 
 using LiteralVariant =

@@ -1,0 +1,16 @@
+//#[test]
+//1
+//29
+//125
+
+fun ack(m i32, n i32) i32 {
+  return if m == 0 { n + 1 }
+    else if n == 0 { ack(m-1, 1) }
+    else { ack(m-1, ack(m, n-1)) }
+}
+
+fun main() i32 {
+  __println(ack(0, 0))
+  __println(ack(3, 2))
+  __println(ack(3, 4))
+}

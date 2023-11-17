@@ -40,6 +40,7 @@ struct Block;
 struct DotRef;
 struct FunCall;
 struct If;
+struct Index;
 struct Literal;
 struct Variable;
 struct Unary;
@@ -117,8 +118,8 @@ constexpr std::size_t variant_index() {
 
 using ExprVariant = std::variant<
     std::unique_ptr<Binary>, std::unique_ptr<Block>, std::unique_ptr<DotRef>,
-    std::unique_ptr<FunCall>, std::unique_ptr<If>, std::unique_ptr<Literal>,
-    std::unique_ptr<Unary>, std::unique_ptr<Variable>>;
+    std::unique_ptr<FunCall>, std::unique_ptr<If>, std::unique_ptr<Index>,
+    std::unique_ptr<Literal>, std::unique_ptr<Unary>, std::unique_ptr<Variable>>;
 
 struct Expr {
   ExprVariant node;
@@ -166,6 +167,11 @@ struct If {
   };
   std::vector<std::unique_ptr<Branch>> branches;
   If(std::vector<std::unique_ptr<Branch>> branches);
+};
+
+struct Index {
+  Expr callee;
+  std::vector<Expr> args;
 };
 
 using LiteralVariant =

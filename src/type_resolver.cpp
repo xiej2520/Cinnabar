@@ -526,7 +526,7 @@ std::optional<TStmt> TypeResolver::resolve(Stmt &stmt) {
         }
       }
 
-      if (res->args.empty()) {
+      if (res->args.empty() && !res->newline) {
         error("__print must have 1 or more arguments");
       }
       if (res->args.size() > 1) {
@@ -762,6 +762,46 @@ TExpr TypeResolver::resolve(Expr &expr) {
             break;
           }
         }
+      }
+
+      return TExpr{std::move(res)};
+    },
+    [&](std::unique_ptr<Index> &expr) {
+      // is a generic
+      // todo
+
+      // is an index operation
+      auto res = std::make_unique<TIndex>();
+      if (expr->args.size() != 1) {
+        error("Currently only support indexing with 1 argument");
+      }
+      res->callee= resolve(expr->callee);
+      res->arg = resolve(expr->args[0]);
+
+      const TTypeInst &callee_type = get_type(res->callee.type());
+      if (auto *var = std::get_if<TBuiltinType>(&callee_type.def)) {
+        switch (var->args.index()) {
+        case TBuiltinEnum::Array: {
+          res->type = std::get<TBuiltinEnum::Array>(var->args).first;
+          break;
+        }
+        case TBuiltinEnum::Span: {
+          res->type = std::get<TBuiltinEnum::Span>(var->args);
+          break;
+        }
+        case TBuiltinEnum::VarSpan: {
+          res->type = std::get<TBuiltinEnum::VarSpan>(var->args);
+          break;
+        }
+        default:
+          //error(fmt::format("Unexpected builtin type index {}", var->args.index()));
+          error(fmt::format("Unsupported indexing operation on type {} with operand type {}",
+              res->callee.type().value, res->arg.type().value));
+        }
+      }
+      else {
+        error(fmt::format("Unsupported indexing operation on type {} with operand type {}",
+            res->callee.type().value, res->arg.type().value));
       }
 
       return TExpr{std::move(res)};

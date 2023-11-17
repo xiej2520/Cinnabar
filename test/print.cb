@@ -1,4 +1,5 @@
 //#[test]
+//
 //4539
 //4.5938
 //abcdeabcde
@@ -17,6 +18,10 @@ fun main() {
   let s = "abcde"
   let a = 45
   let b = 39
+  
+  // error
+  //__print()
+  __println()
   
   // print an int, double, char, string
   __print(a)

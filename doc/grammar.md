@@ -69,6 +69,7 @@ expression = literal
            | ifExpr
            | matchExpr
            | blockExpr
+           | indexExpr
            | rangeExpr
            ;
 
@@ -91,7 +92,13 @@ matchExpr = "match" expression
 blockExpr = "{"
             declaration*
             "}" ;
+
+indexExpr = expression "[" expression  ( "," expression )* "]" ;
 ```
+
+Generics will get parsed the same, will be converted during type checking.
+E.g. vec[3+4] and Vector[i32] will both get parsed into indexExpr.
+Allows for multidimensional slicing in the future?
 
 Cinnabar is mostly semicolon free. Semicolons will get added at newlines where
 they make sense, and before the end of a braced block.

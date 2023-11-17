@@ -307,6 +307,14 @@ std::string Expr::s_expr(int cur, int ind) {
       }
       return res + fmt::format("{:{}})\n", "", cur);
     },
+    [&](unique_ptr<Index> &expr) {
+      auto res = fmt::format("{:{}}(Index\n{}", "", cur,
+          expr->callee.s_expr(cur + ind, ind));
+      for (Expr &e : expr->args) {
+        res += fmt::format("{}", e.s_expr(cur + ind, ind));
+      }
+      return res + fmt::format("{:{}})\n", "", cur);
+    },
     [&](unique_ptr<Literal> &expr) {
       return fmt::format(
           "{:{}}(Literal[{}])\n", "", cur, to_string(expr->val));

@@ -1,5 +1,6 @@
 #include "codegen_c.hpp"
 
+#include <cassert>
 #include <functional>
 #include <ranges>
 #include <unordered_map>
@@ -373,7 +374,11 @@ void CodegenC::emit_stmt(const TStmt &stmt) {
       std::string fmt_str;
       size_t arg_idx = 0;
 
-      if (stmt->args.size() == 1) {
+      if (stmt->args.empty()) {
+        assert(stmt->newline);
+        fmt_str = "";
+      }
+      else if (stmt->args.size() == 1) {
         fmt_str = "{}";
       }
       else {
@@ -597,6 +602,33 @@ std::string CodegenC::emit_expr(const TExpr &expr) {
       }
 
       return if_var_name;
+    },
+    [&](const std::unique_ptr<TIndex> &expr) {
+      const TTypeInst &callee_type = tast.types[expr->callee.type()];
+      if (auto *var = std::get_if<TBuiltinType>(&callee_type.def)) {
+        switch (var->args.index()) {
+        case TBuiltinEnum::Array: {
+          auto expr_callee = emit_expr(expr->callee);
+          auto expr_arg = emit_expr(expr->arg);
+          return fmt::format("(*({}.data + {}))", expr_callee, expr_arg);
+        }
+        case TBuiltinEnum::Span: {
+          auto expr_callee = emit_expr(expr->callee);
+          auto expr_arg = emit_expr(expr->arg);
+          return fmt::format("(*({}.ptr + {}))", expr_callee, expr_arg);
+        }
+        case TBuiltinEnum::VarSpan: {
+          auto expr_callee = emit_expr(expr->callee);
+          auto expr_arg = emit_expr(expr->arg);
+          return fmt::format("(*({}.ptr + {}))", expr_callee, expr_arg);
+        }
+        default:
+          error("Indexing not supported on type");
+        }
+      }
+      else {
+        error("Indexing not supported on type");
+      }
     },
     [&](const std::unique_ptr<TLiteral> &expr) {
       return std::visit(overload{
