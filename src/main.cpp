@@ -73,4 +73,16 @@ int main(int argc, char **argv) {
       std::system(fmt::format("clang-format -i {}", args.c_out).c_str());
     }
     std::system(fmt::format("cc {} -o {}", args.c_out, args.out).c_str());
+    
+    enum Status : int {
+      Ok,
+      LexError,
+      ParseError,
+      TypeError,
+      CodegenError,
+    };
+    if (lexer.get_has_error()) return Status::LexError;
+    if (parser.get_has_error()) return Status::ParseError;
+    if (resolver.get_has_error()) return Status::TypeError;
+    return Status::Ok;
 }

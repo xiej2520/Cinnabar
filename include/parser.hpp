@@ -76,6 +76,7 @@ class Parser {
 public:
   Parser(std::string source);
   AST parse();
+  inline bool get_has_error() { return has_error; }
 };
 
 } // namespace cinnabar

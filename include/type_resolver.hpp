@@ -61,7 +61,7 @@ struct TypeResolver {
   TNamespace *cur_fun_tnamesp = nullptr;
 
   // avoid cycles
-  std::unordered_set<std::string> currently_creating;
+  std::unordered_set<TypeId> currently_creating;
   
   PushNamespace push_namespace(Namespace *namesp, TNamespace *tnamesp);
   PushFun push_fun(FunId fun, TNamespace *fun_tnamesp);
@@ -97,6 +97,8 @@ struct TypeResolver {
 
   [[noreturn]] void error(std::string_view message);
   [[noreturn]] void error(TypeId expected, TypeId found);
+
+  inline bool get_has_error() { return has_error; }
 };
 
 }

@@ -185,12 +185,6 @@ TypeId TypeResolver::add_type(
     const GenericInst &type, TypeDeclPtr decl, TNamespace *parent_tnamesp
 ) {
   auto type_name = type.to_string();
-  if (currently_creating.contains(type_name)) {
-    error(fmt::format(
-        "Cycle detected while instantiating types at {}.", type_name
-    ));
-  }
-
   TypeId res = static_cast<int>(types.size());
   // clang-format off
   std::visit(overload{
@@ -262,7 +256,7 @@ TypeId TypeResolver::add_type(
     },
     [&](EnumDecl *decl) {
       types.push_back(TTypeInst{TEnumInst{type, {}, std::make_unique<TNamespace>(parent_tnamesp), {}, {}}});
-      currently_creating.insert(type_name);
+      currently_creating.insert(res);
       // don't use reference, types will get resized
       auto p = push_namespace(decl->namesp.get(), types[res].as<TEnumInst>().namesp.get());
 
@@ -277,15 +271,22 @@ TypeId TypeResolver::add_type(
       
       for (size_t i = 0; i < decl->variants.size(); i++) {
         auto &[name, gentype] = decl->variants[i];
-        types[res].as<TEnumInst>().variants[name.str] = {get_typeid(gentype), i};
+        TypeId variant_type_id = get_typeid(gentype);
+        if (currently_creating.contains(variant_type_id)) {
+          error(fmt::format(
+              "Cycle detected while instantiating types at {}.", gentype.to_string()
+          ));
+        }
+        types[res].as<TEnumInst>().variants[name.str] = {variant_type_id, i};
+
       }
       
       // add methods? later
-      currently_creating.erase(type_name);
+      currently_creating.erase(res);
     },
     [&](StructDecl *decl) {
       types.push_back(TTypeInst{TStructInst{type, {}, std::make_unique<TNamespace>(parent_tnamesp), {}, {}}});
-      currently_creating.insert(type_name);
+      currently_creating.insert(res);
       auto p = push_namespace(decl->namesp.get(), types[res].as<TStructInst>().namesp.get());
 
       parent_tnamesp->concrete_types[type_name] = res;
@@ -299,11 +300,17 @@ TypeId TypeResolver::add_type(
       
       for (size_t i = 0; i < decl->fields.size(); i++) {
         auto &[name, gentype] = decl->fields[i];
-        types[res].as<TStructInst>().fields[name.str] = {get_typeid(gentype), i};
+        TypeId field_type_id = get_typeid(gentype);
+        if (currently_creating.contains(field_type_id)) {
+          error(fmt::format(
+              "Cycle detected while instantiating types at {}.", gentype.to_string()
+          ));
+        }
+        types[res].as<TStructInst>().fields[name.str] = {field_type_id, i};
       }
       
       // add methods? later
-      currently_creating.erase(type_name);
+      currently_creating.erase(res);
     },
   }, decl);
   // clang-format on

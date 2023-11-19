@@ -228,5 +228,6 @@ public:
   bool lex();
   std::span<Token> get_tokens();
   std::string token_repr();
+  inline bool get_has_error() { return has_error; }
 };
 }
