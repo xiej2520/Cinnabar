@@ -40,3 +40,16 @@ fun f[T, R](T container, R elem) {
 }
 
 ```
+
+## Reference and dereference
+
+* Postfix dereference is easier to follow and needs less parentheses.
+* Annoying to parse if using `*`, same as infix multiply - needs backtracking in
+parser?
+
+* Use `@` for now? `^` has same problem.
+* Zig uses `.*`, makes sense but two characters and `*` isn't used like this elsewhere.
+
+```Cinnabar
+let a = ptr@@.field
+```

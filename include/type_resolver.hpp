@@ -98,7 +98,7 @@ struct TypeResolver {
   [[noreturn]] void error(std::string_view message);
   [[noreturn]] void error(TypeId expected, TypeId found);
 
-  inline bool get_has_error() { return has_error; }
+  inline bool get_has_error() { return false; }
 };
 
 }

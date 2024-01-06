@@ -1,0 +1,52 @@
+// adapted from LLVM Kaleidoscope
+
+fun print_density(d i32) {
+  __print(if d > 8 { ' ' } else if d > 4 { '.' } else if d > 2 { '+' } else { '*' })
+}
+
+// Determine whether the specific location diverges.
+// Solve for z = z^2 + c in the complex plane
+fun mandelbrot_converger(real f64, imag f64, iters i32, creal f64, cimag f64) i32 {
+  return if iters > 255 || (real * real + imag * imag > 4.0) {
+    iters
+  } else {
+    mandelbrot_converger(real * real - imag * imag + creal, 2.0 * real * imag + cimag, iters + 1, creal, cimag)
+  }
+}
+
+fun mandelbrot_converge(real f64, imag f64) i32 {
+  return mandelbrot_converger(real, imag, 0, real, imag)
+}
+
+fun mandelbrot_help(xmin f64, xmax f64, xstep f64, ymin f64, ymax f64, ystep f64) {
+  fun yloop(xmin f64, xmax f64, xstep f64, ymin f64, ymax f64, ystep f64, ycur f64) {
+    if ycur > ymax {
+      return
+    }
+    else {
+      xloop(xmin, xmax, xstep, ymin, ymax, ystep, xmin, ycur)
+      __println()
+      yloop(xmin, xmax, xstep, ymin, ymax, ystep, ycur + ystep)
+    }
+  }
+  fun xloop(xmin f64, xmax f64, xstep f64, ymin f64, ymax f64, ystep f64, xcur f64, ycur f64) {
+    if xcur > xmax {
+      return
+    }
+    else {
+      print_density(mandelbrot_converge(xcur, ycur))
+      xloop(xmin, xmax, xstep, ymin, ymax, ystep, xcur + xstep, ycur)
+    }
+  }
+  yloop(xmin, xmax, xstep, ymin, ymax, ystep, ymin)
+}
+
+fun mandelbrot(realstart f64, imagstart f64, realmag f64, imagmag f64) {
+  mandelbrot_help(realstart, realstart + realmag * 78.0, realmag, imagstart, imagstart + imagmag * 40.0, imagmag);
+}
+
+fun main() i32 {
+  mandelbrot(-2.3, -1.3, 0.05, 0.07) 
+  __println()
+  mandelbrot(-2.0, -1.0, 0.02, 0.04);
+}

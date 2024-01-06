@@ -1,0 +1,10 @@
+
+fun identity[T](e T) {
+  return e
+}
+
+fun main() i32 {
+  __println(identity(0))
+  __println(identity(1.2))
+  __println(identity("abcd"))
+}

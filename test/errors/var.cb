@@ -1,0 +1,4 @@
+fun main() i32 {
+  a = 34;
+  var a = a;
+}

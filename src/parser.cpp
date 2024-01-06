@@ -116,12 +116,7 @@ void Parser::synchronize() {
     // try to parse again if we see these
     // 'if' not included because it's an expr
     case STRUCT:
-    case FOR:
     case FUN:
-    case LET:
-    case RETURN:
-    case VAR:
-    case WHILE:
       return;
     default:
       break;

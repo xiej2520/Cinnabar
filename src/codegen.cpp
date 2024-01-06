@@ -4,7 +4,7 @@
 
 namespace cinnabar {
 
-  
+
 std::string generate(const TAST &tast, CodegenOutput output_type) {
   switch (output_type) {
   case CodegenOutput::C: {
@@ -20,5 +20,5 @@ std::string generate(const TAST &tast, CodegenOutput output_type) {
   return "";
 }
 
-  
+
 } // namespace cinnbar
