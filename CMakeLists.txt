@@ -10,6 +10,8 @@ link_directories(include)
 
 include_directories(include/fmt)
 
+include_directories(src/*)
+
 file(GLOB_RECURSE SOURCES "src/*.cpp" main.cpp)
 
 if(MSVC)
@@ -40,10 +42,10 @@ add_executable(cinnabar ${SOURCES})
 
 # Debug build
 # cmake -S . -B build/ -D CMAKE_BUILD_TYPE=Debug
-# cmake --build build/
+# cmake --build build/ -j16
 
 # cmake -B build/ -S . -DCMAKE_TOOLCHAIN_FILE=~/vcpkg/scripts/buildsystems/vcpkg.cmake -D CMAKE_BUILD_TYPE=Debug
 
 # Release build
 # cmake -S . -B build/ -D CMAKE_BUILD_TYPE=Release
-# cmake --build build/
+# cmake --build build/ -j16

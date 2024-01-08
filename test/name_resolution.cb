@@ -1,0 +1,56 @@
+fun main() {
+  struct S {
+    a i32
+  }
+  let a1 Array[S, 4]
+  {
+    struct S {
+      b f64
+    }
+    let a2 Array[S, 4]
+    
+    a1[0] = 1
+    a2[0] = 1.0
+  }
+}
+
+/* Rust
+fn main() {
+    let s = S { s: 4 };
+    let x = foo();
+    println!("{}", x.s);
+}
+struct S {
+    s: i32,
+}
+fn foo() -> S {
+    struct S {
+        s: f64,
+    }
+    let s = S { s: 3.1 };
+    s
+}
+*/
+
+/* C++
+struct S {
+    int s;
+};
+S foo() {
+    struct S {
+        float s;
+    };
+    S a = {3.1};
+    {
+        if (true) {
+            struct S {
+                char s;
+            };
+            S b = {'b'};
+            bool x = a == b;
+            return S{'a'};
+        }
+    }
+    return S{3.4};
+}
+*/

@@ -9,7 +9,9 @@
 namespace cinnabar {
 
 class Parser {
-  struct ParseError { };
+  struct ParseError {
+    std::vector<std::pair<Token, std::string>> where_errors;
+  };
 
   bool has_error = false;
   Lexer lexer;
@@ -45,6 +47,7 @@ class Parser {
   void synchronize();
 
   GenericInst type_name();
+  GenericName name_generic_params();
   TypedName ident_type();
 
   Stmt toplevel_declaration();

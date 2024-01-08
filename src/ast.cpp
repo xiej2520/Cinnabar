@@ -8,15 +8,9 @@ using std::vector;
 using enum Lexeme;
 
 const std::vector<std::string_view> default_primitives = {
-  "__fun", // for type resolution purposes
-  "unit",  "i8",  "i16", "i32",  "i64",  "u8",    "u16",   "u32",
-  "u64",   "f32", "f64", "char", "bool", "isize", "usize",
+    "unit", "i8",  "i16", "i32",  "i64",  "u8",    "u16",   "u32",
+    "u64",  "f32", "f64", "char", "bool", "isize", "usize",
 };
-
-//const std::vector<GenericName> default_builtin_types = {
-//  {"Ref", {"T"}}, {"VarRef", {"T"}}, {"Span", {"T"}}, {"VarSpan", {"T"}},
-//  {"Array", {"T", "N"}},
-//};
 
 [[nodiscard]] bool GenericName::is_concrete() const { return params.empty(); }
 
@@ -44,7 +38,7 @@ DeclPtr Namespace::get_name(std::string_view name) {
   if (names.contains(name)) {
     return names[name];
   } else if (parent == nullptr) {
-    return static_cast<BuiltinType *>(nullptr);
+    return static_cast<VarDecl *>(nullptr);
   }
   return parent->get_name(name);
 }
@@ -58,8 +52,6 @@ std::string Namespace::to_string(int cur) {
   for (auto &p : names) {
     // clang-format off
     std::visit(overload{
-      [&](Primitive *) { type_names.push_back(p.first); },
-      [&](BuiltinType *) { type_names.push_back(p.first); },
       [&](StructDecl *) { type_names.push_back(p.first); },
       [&](EnumDecl *) { type_names.push_back(p.first); },
       [&](FunDecl *) { fun_names.push_back(p.first); },
@@ -148,7 +140,7 @@ If::Branch::Branch(Expr condition, unique_ptr<Block> block)
 
 Literal::Literal(LiteralVariant val) : val(val) {}
 
-Variable::Variable(Token name) : name(name) {}
+NamedValue::NamedValue(Token name) : name(name) {}
 
 Unary::Unary(UnaryOp op, Expr operand) : op(op), operand(std::move(operand)) {}
 
@@ -238,14 +230,14 @@ std::string Stmt::s_expr(int cur, int ind) {
           to_string(stmt->op), stmt->lhs.s_expr(cur + ind, ind),
           stmt->rhs.s_expr(cur + ind, ind), "", cur);
     },
-    [&](unique_ptr<Break> &) { return fmt::format("{:{}}Break", cur, ind); },
-    [&](unique_ptr<Continue> &) { return fmt::format("{:{}}Continue", cur, ind); },
+    [&](unique_ptr<Break> &) { return fmt::format("{:{}}Break\n", cur, ind); },
+    [&](unique_ptr<Continue> &) { return fmt::format("{:{}}Continue\n", cur, ind); },
     [&](Declaration &stmt) { return stmt.s_expr(cur, ind); },
     [&](unique_ptr<Expression> &stmt) { return stmt->expr.s_expr(cur, ind); },
     [&](unique_ptr<For> &) { return fmt::format(""); },
     [&](unique_ptr<Return> &stmt) {
       if (stmt->value.has_value()) {
-        return fmt::format("{:{}}(Return\n{}\n{:{}})\n", "", cur,
+        return fmt::format("{:{}}(Return\n{}{:{}})\n", "", cur,
             stmt->value.value().s_expr(cur+ind, ind), "", cur);
       }
       return fmt::format("{:{}}(Return)\n", "", cur);
@@ -257,7 +249,7 @@ std::string Stmt::s_expr(int cur, int ind) {
       for (auto &expr : stmt->args) {
         res += expr.s_expr(cur + ind, ind);
       }
-      return res + fmt::format("{:{}})", "", cur);
+      return res + fmt::format("{:{}})\n", "", cur);
     },
   },
   node);
@@ -324,21 +316,17 @@ std::string Expr::s_expr(int cur, int ind) {
       res += expr->operand.s_expr(cur+ind, ind);
       return res + fmt::format("{:{}})\n", "", cur);
     },
-    [&](unique_ptr<Variable> &expr) {
+    [&](unique_ptr<NamedValue> &expr) {
       return fmt::format(
-          "{:{}}(Variable[{}])\n", "", cur, expr->name.str);
+          "{:{}}(NamedValue[{}])\n", "", cur, expr->name.str);
     },
   },
   node);
 }
 // clang-format on
 
-AST::AST(
-    vector<Declaration> decls, vector<unique_ptr<Primitive>> primitives,
-    vector<unique_ptr<BuiltinType>> builtin_types, unique_ptr<Namespace> globals
-)
-    : decls(std::move(decls)), primitives(std::move(primitives)),
-      builtin_types(std::move(builtin_types)), globals(std::move(globals)) {}
+AST::AST(vector<Declaration> decls, unique_ptr<Namespace> globals)
+    : decls(std::move(decls)), globals(std::move(globals)) {}
 
 std::string AST::to_string() {
   std::string res = "AST\n";

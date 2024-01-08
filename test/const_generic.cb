@@ -1,0 +1,7 @@
+struct StaticVector[T, N i32] {
+  data Array[T, N]
+}
+fun main() {
+  let s1 StaticVector[i32, 10]
+  let s1 StaticVector[Array[f64, 10], 10]
+}

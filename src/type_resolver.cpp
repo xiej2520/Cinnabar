@@ -16,92 +16,74 @@ TypeResolver::push_namespace(Namespace *namesp, TNamespace *tnamesp) {
   return {this, namesp, tnamesp};
 }
 TypeResolver::PushFun
-TypeResolver::push_fun(FunId fun, TNamespace *fun_tnamesp) {
+TypeResolver::push_fun(FunctionInst *fun, TNamespace *fun_tnamesp) {
   return {this, fun, fun_tnamesp};
 }
 
 TypeResolver::TypeResolver(AST &ast) : ast(ast) {}
 
-TypeId TypeResolver::get_typeid(const GenericInst &gentype) {
-  std::string_view base_type = gentype.base_name;
-
+TypeRef TypeResolver::get_type(NameWithArgs concrete) {
   auto namesp = cur_ast_namesp;
   auto tnamesp = cur_tnamesp;
+
+  auto base_str = concrete.base_name.str;
+
   for (; namesp != nullptr;
        namesp = namesp->parent, tnamesp = tnamesp->parent) {
-    if (namesp->names.contains(base_type)) {
-      DeclPtr decl = namesp->names[base_type];
-      auto gentype_str = gentype.to_string();
+    if (auto it = namesp->names.find(base_str); it != namesp->names.end()) {
+      /// add generic version of type to tast - later
+      // if (!tnamesp->items.contains(base_str)) {
+      //   tnamesp[base_str] = resolve(decl);
+      // }
+
       // clang-format off
-      return std::visit(overload{
-        [&](Primitive *decl) {
-          if (auto it = tnamesp->concrete_types.find(gentype_str); it != tnamesp->concrete_types.end()) {
-            return it->second;
-          }
-          return tnamesp->concrete_types[gentype_str] = add_type(gentype, decl, tnamesp);
-        },
-        [&](BuiltinType *decl) {
-          if (!tnamesp->concrete_types.contains(gentype_str)) {
-            return tnamesp->concrete_types[gentype_str] = add_type(gentype, decl, tnamesp);
-          }
-          return tnamesp->concrete_types[gentype_str];
-        },
+      return std::get<TypeRef>(std::visit(overload{
         [&](EnumDecl *decl) {
-          if (!tnamesp->concrete_types.contains(gentype_str)) {
-            return tnamesp->concrete_types[gentype_str] = add_type(gentype, decl, tnamesp);
+          auto concrete_full_name = to_string(concrete.base_name, concrete.args, types);
+          if (!tnamesp->items.contains(concrete_full_name)) {
+            return tnamesp->items[concrete_full_name] = create_type(concrete);
           }
-          return tnamesp->concrete_types[gentype_str];
+          return tnamesp->items[concrete_full_name];
         },
-        [&](FunDecl *) { error(fmt::format("Name {} is a function, not a type.", base_type)); return TypeId{-1}; },
+        [&](FunDecl *) -> ItemRef { error(fmt::format("Name {} is a function, not a type.", base_str)); },
         [&](StructDecl *decl) {
-          if (!tnamesp->concrete_types.contains(gentype_str)) {
-            return tnamesp->concrete_types[gentype_str] = add_type(gentype, decl, tnamesp);
+          auto concrete_full_name = to_string(concrete.base_name, concrete.args, types);
+          if (!tnamesp->items.contains(concrete_full_name)) {
+            return create_struct_type(concrete);
           }
-          return tnamesp->concrete_types[gentype_str];
+          return tnamesp->items[concrete_full_name];
         },
-        [&](VarDecl *) { error(fmt::format("Name {} is a variable, not a type.", base_type)); return TypeId{-1}; },
-      }, decl);
+        [&](VarDecl *) -> ItemRef { error(fmt::format("Name {} is a variable, not a type.", base_str)); },
+      }, it->second));
       // clang-format on
     }
   }
-  error(fmt::format("Base type {} not found.", base_type));
+  error(fmt::format("Base type {} not found.", base_str));
 }
 
-const TTypeInst &TypeResolver::get_type(TypeId id) {
-  if (id < 0 || static_cast<size_t>(id) >= types.size()) {
-    error(fmt::format("TypeId {} out of bounds", id.value));
-  }
-  return types.at(id);
-}
-
-FunId TypeResolver::get_funid(const GenericInst &gentype) {
-  std::string_view base_fun = gentype.base_name;
+FunctionInst *TypeResolver::get_function(NameWithArgs concrete) {
+  std::string_view base_str = concrete.base_name.str;
 
   auto namesp = cur_ast_namesp;
   auto tnamesp = cur_tnamesp;
   for (; namesp != nullptr;
        namesp = namesp->parent, tnamesp = tnamesp->parent) {
-    if (namesp->names.contains(base_fun)) {
-      DeclPtr decl = namesp->names[base_fun];
-      if (!std::holds_alternative<FunDecl *>(decl)) {
-        error(fmt::format("Name {} is not a function.", base_fun));
+    if (auto it = namesp->names.find(base_str); it != namesp->names.end()) {
+      if (!std::holds_alternative<FunDecl *>(it->second)) {
+        error(fmt::format("Name {} is not a function.", base_str));
       }
-      auto gentype_str = gentype.to_string();
-      if (!tnamesp->concrete_funs.contains(gentype_str)) {
-        return tnamesp->concrete_funs[gentype_str] =
-                   add_fun(gentype, std::get<FunDecl *>(decl), tnamesp);
+      auto concrete_full_name =
+          to_string(concrete.base_name, concrete.args, types);
+      if (!tnamesp->items.contains(concrete_full_name)) {
+        return std::get<FunctionInst *>(
+                   tnamesp->items[concrete_full_name] =
+                       add_fun(concrete, std::get<FunDecl *>(decl), tnamesp)
+        ).get();
       }
-      return tnamesp->concrete_funs[gentype_str];
+      return std::get<FunctionInst *>(tnamesp->items[concrete_full_name]).get();
     }
   }
   error(fmt::format("Function {} not found.", base_fun));
-}
-
-const TFunInst &TypeResolver::get_fun(FunId id) {
-  if (id < 0 || static_cast<size_t>(id) >= functions.size()) {
-    error(fmt::format("FunId {} out of bounds", id.value));
-  }
-  return functions.at(id);
 }
 
 TVarInst *TypeResolver::get_var_local_global(std::string_view name) {
@@ -119,66 +101,63 @@ TVarInst *TypeResolver::get_var_local_global(std::string_view name) {
       it != root_tnamesp->variables.end()) {
     return it->second;
   }
-  error(fmt::format("Variable {} not found.", name));
+  error(fmt::format("NamedValue {} not found.", name));
 }
 
-DeclaredName TypeResolver::get_decl(const GenericInst &geninst) {
-  std::string_view base_name = geninst.base_name;
 
-  auto namesp = cur_ast_namesp;
-  auto tnamesp = cur_tnamesp;
+bool TypeResolver::is_genericable(DeclPtr decl) {
+  // clang-format off
+  return std::visit(overload{
+    [&](Primitive *)   { return false; },
+    [&](BuiltinType *) { return true; },
+    [&](EnumDecl *)    { return true; },
+    [&](FunDecl *)     { return true; },
+    [&](StructDecl *)  { return true; },
+    [&](VarDecl *)     { return false;},
+  }, decl);
+  // clang-format on
+}
 
-  std::string geninst_str = geninst.to_string();
-  for (; namesp != nullptr;
-       namesp = namesp->parent, tnamesp = tnamesp->parent) {
-    if (namesp->names.contains(base_name)) {
-      DeclPtr decl = namesp->names[base_name];
-      // clang-format off
-      return std::visit(overload{
-        [&](Primitive *) -> DeclaredName {
-          // all primitive types should be added at the beginning of resolving
-          return tnamesp->concrete_types[geninst_str];
-        },
-        [&](BuiltinType *decl) -> DeclaredName {
-          if (auto it = tnamesp->concrete_types.find(geninst_str); it != tnamesp->concrete_types.end()) {
-            return it->second;
-          }
-          return add_type(geninst, decl, tnamesp);
-        },
-        [&](EnumDecl *decl) -> DeclaredName {
-          if (!tnamesp->concrete_types.contains(geninst_str)) {
-            return add_type(geninst, decl, tnamesp);
-          }
-          return tnamesp->concrete_types[geninst_str];
-        },
-        [&](FunDecl *) -> DeclaredName {
-          if (!tnamesp->concrete_funs.contains(geninst_str)) {
-            return add_fun(geninst, std::get<FunDecl *>(decl), tnamesp);
-          }
-          return tnamesp->concrete_funs[geninst_str];
-        },
-        [&](StructDecl *decl) -> DeclaredName {
-          if (!tnamesp->concrete_types.contains(geninst_str)) {
-            return add_type(geninst, decl, tnamesp);
-          }
-          return tnamesp->concrete_types[geninst_str];
-        },
-        [&](VarDecl *) -> DeclaredName {
-          if (!geninst.is_concrete()) {
-            error("Internal error: Tried to search for variable with "
-                  "type parameter?");
-          } else if (!tnamesp->variables.contains(base_name)) {
-            error(fmt::format(
-                "Variable {} used before definition complete.", base_name
-            ));
-          }
-          return tnamesp->variables[base_name];
-        },
-      }, decl);
-      // clang-format on
-    }
+TypeRef TypeResolver::create_struct_type(
+    StructDecl *decl, std::vector<GenericArg> args,
+    TNamespace *parent_tnamesp
+) {
+  size_t struct_index = items.size();
+  items.push_back(Item{std::make_unique<StructInst>()});
+  auto struct_inst = std::get<std::unique_ptr<StructInst>>(items.back()).get();
+  struct_inst->generic_args = std::move(args);
+
+  currently_creating.insert(struct_index);
+
+  auto p = push_namespace(decl->namesp.get(), struct_inst->namesp.get());
+
+  auto concrete_full_name = to_string(decl->name, args, types);
+  auto res = TypeRef{Path{struct_inst, parent_tnamesp->id}};
+  parent_tnamesp->items[concrete_full_name] = res;
+
+  for (size_t i = 0; i < args.size(); i++) {
+    // clang-format off
+    struct_inst->namesp->items[std::string{decl->name_param.params[i].name.str}] =
+      std::visit(overload{
+        [&](TypeRef t) { return ItemRef{t}; },
+        [&](const std::unique_ptr<TVarInst> &v) { return ItemRef{v.get()}; }
+      }, args[i]);
+    // clang-format on
   }
-  error(fmt::format("Base name {} not found.", base_name));
+  
+  for (size_t i = 0; i < decl->fields.size(); i++) {
+    auto &[name, gentype] = decl->fields[i];
+    TypeId field_type_id = get_typeid(gentype);
+    if (currently_creating.contains(field_type_id)) {
+      error(fmt::format(
+          "Cycle detected while instantiating types at {}.", gentype.to_string()
+      ));
+    }
+    types[res].as<TStructInst>().fields[name.str] = {field_type_id, i};
+  }
+  
+  // add methods? later
+  currently_creating.erase(struct_index);
 }
 
 TypeId TypeResolver::add_type(
@@ -285,32 +264,6 @@ TypeId TypeResolver::add_type(
       currently_creating.erase(res);
     },
     [&](StructDecl *decl) {
-      types.push_back(TTypeInst{TStructInst{type, {}, std::make_unique<TNamespace>(parent_tnamesp), {}, {}}});
-      currently_creating.insert(res);
-      auto p = push_namespace(decl->namesp.get(), types[res].as<TStructInst>().namesp.get());
-
-      parent_tnamesp->concrete_types[type_name] = res;
-      types[res].as<TStructInst>().namesp->concrete_types[type_name] = res;
-
-      for (size_t i = 0; i < type.args.size(); i++) {
-        TypeId genparam_id = get_typeid(type.args[i]);
-        types[res].as<TStructInst>().generic_args.push_back(genparam_id);
-        types[res].as<TStructInst>().namesp->concrete_types[decl->name_param.params[i]] = genparam_id;
-      }
-      
-      for (size_t i = 0; i < decl->fields.size(); i++) {
-        auto &[name, gentype] = decl->fields[i];
-        TypeId field_type_id = get_typeid(gentype);
-        if (currently_creating.contains(field_type_id)) {
-          error(fmt::format(
-              "Cycle detected while instantiating types at {}.", gentype.to_string()
-          ));
-        }
-        types[res].as<TStructInst>().fields[name.str] = {field_type_id, i};
-      }
-      
-      // add methods? later
-      currently_creating.erase(res);
     },
   }, decl);
   // clang-format on
@@ -330,6 +283,14 @@ FunId TypeResolver::add_fun(
   auto block_namesp = std::make_unique<TNamespace>(parent_tnamesp);
   parent_tnamesp->concrete_funs[fun.to_string()] = res;
   block_namesp->concrete_funs[fun.to_string()] = res;
+
+  // add generic arguments to function namespace
+  if (fun.args.size() != decl->name_param.params.size()) {
+    error(fmt::format(
+        "Expected {} generic arguments, received {}",
+        decl->name_param.params.size(), fun.args.size()
+    ));
+  }
 
   for (size_t i = 0; i < fun.args.size(); i++) {
     TypeId genparam_id = get_typeid(fun.args[i]);
@@ -627,13 +588,13 @@ std::unique_ptr<TVarInst> TypeResolver::resolve(VarDecl &decl) {
   if (decl.type_specifier.has_value()) {
     auto specifier_type = get_typeid(decl.type_specifier.value());
     if (res->initializer.has_value() && res->type != specifier_type) {
-        error(fmt::format("Variable {} has declared type {}, does not match initializer type {}",
+        error(fmt::format("NamedValue {} has declared type {}, does not match initializer type {}",
             res->name.str, specifier_type.value, res->type.value));
     }
     res->type = specifier_type;
   }
   if (res->type == -1) {
-    error(fmt::format("Variable {} does not have a declared type or initializer"
+    error(fmt::format("NamedValue {} does not have a declared type or initializer"
         " (currently do not support type inference).", res->name.str));
   }
   
@@ -712,7 +673,7 @@ TExpr TypeResolver::resolve(Expr &expr) {
           },
           [&](TypeId) { error("Type not callable."); },
           //[&](StructDecl *) { error("Struct not callable"); },
-          [&](TVarInst *) { error("Variable not callable."); },
+          [&](TVarInst *) { error("NamedValue not callable."); },
         }, var.decl);
       }
       // dotref to function callable (method)
@@ -774,7 +735,17 @@ TExpr TypeResolver::resolve(Expr &expr) {
       return TExpr{std::move(res)};
     },
     [&](std::unique_ptr<Index> &expr) {
+      if (std::unique_ptr<NamedValue> *var = std::get_if<std::unique_ptr<NamedValue>>(&expr->callee.node)) {
+        auto [decl, namesp, tnamesp] = get_base_decl_namespaces((*var)->name.str);
+        if (is_genericable(decl)) {
+          GenericInst generic_type{std::string{(*var)->name.str}, std::vector<GenericInst>{}};
+        }
+      }
+      //auto decl = get_base_decl(expr->callee);
+      auto callee = resolve(expr->callee);
       // is a generic
+
+
       // todo
 
       // is an index operation
@@ -782,7 +753,7 @@ TExpr TypeResolver::resolve(Expr &expr) {
       if (expr->args.size() != 1) {
         error("Currently only support indexing with 1 argument");
       }
-      res->callee= resolve(expr->callee);
+      res->callee = resolve(expr->callee);
       res->arg = resolve(expr->args[0]);
 
       const TTypeInst &callee_type = get_type(res->callee.type());
@@ -840,7 +811,7 @@ TExpr TypeResolver::resolve(Expr &expr) {
       res->type = find_unary_op(expr->op, res->operand);
       return TExpr{std::move(res)};
     },
-    [&](std::unique_ptr<Variable> &expr) {
+    [&](std::unique_ptr<NamedValue> &expr) {
       // "variable" is identifier, can be var, fun, struct, enum
       auto res = std::make_unique_for_overwrite<TVariable>();
 
@@ -905,7 +876,7 @@ TAST TypeResolver::resolve() {
   root_tnamesp = root_namesp.get();
   cur_tnamesp = root_tnamesp;
 
-  TAST tast;
+  TAST tast{};
 
   std::vector<std::unique_ptr<TVarInst>> globals;
 

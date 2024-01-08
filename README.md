@@ -18,6 +18,15 @@ Attempt to make a smaller (and simpler?) C++ and Rust inspired language.
   * Immutable references
   * Generic parsing and monomorphization
 
+## Todo
+
+* Basic generic functions
+* Basic generic structs
+* Fix `__print` and `__println` to use string lengths
+* Use place expressions for codegen
+* Methods and struct/enum functions
+* Extern C
+
 ## Feature Goals
 
 * LLVM codegen

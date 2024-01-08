@@ -11,7 +11,8 @@ Parser::Parser(std::string source) : lexer(std::move(source)) {
   tokens = lexer.get_tokens();
 }
 
-template <typename T> void Parser::reserve_name(const Token &name) {
+template <typename T>
+void Parser::reserve_name(const Token &name) {
   Namespace *current = namespaces.back();
   if (current->names.contains(name.str)) {
     throw error_at(
@@ -21,7 +22,8 @@ template <typename T> void Parser::reserve_name(const Token &name) {
   current->names[name.str] = static_cast<T>(nullptr);
 }
 
-template <typename T> void Parser::link_name(const Token &name, T decl) {
+template <typename T>
+void Parser::link_name(const Token &name, T decl) {
   Namespace *current = namespaces.back();
   if (!current->names.contains(name.str) ||
       current->names[name.str] != DeclPtr(static_cast<T>(nullptr))) {
@@ -32,7 +34,8 @@ template <typename T> void Parser::link_name(const Token &name, T decl) {
   current->names[name.str] = decl;
 }
 
-template <typename T> void Parser::add_name(const Token &name, T decl) {
+template <typename T>
+void Parser::add_name(const Token &name, T decl) {
   Namespace *current = namespaces.back();
   if (current->names.contains(name.str)) {
     throw error_at(
@@ -125,6 +128,22 @@ void Parser::synchronize() {
   }
 }
 
+// parses a generic declaration like S[T, R]
+GenericName Parser::name_generic_params() {
+  Token base_name = expect(IDENTIFIER, "Expected name.");
+  std::vector<std::string> params;
+  if (match(LEFT_BRACKET)) {
+    do {
+      params.push_back(
+          std::string{expect(IDENTIFIER, "Expected generic parameter").str}
+      );
+    } while (match(COMMA));
+    expect(RIGHT_BRACKET, "Expected ']' after generic parameter list");
+  }
+
+  return GenericName{std::string{base_name.str}, params};
+}
+
 GenericInst Parser::type_name() {
   Token name = expect(IDENTIFIER, "Expected type name.");
   std::vector<GenericInst> params;
@@ -140,7 +159,7 @@ GenericInst Parser::type_name() {
         params.push_back(type_name());
       } while (match(COMMA));
     }
-    expect(RIGHT_BRACKET, "Expect ']' after type arguments.");
+    expect(RIGHT_BRACKET, "Expect ']' after generic parameters.");
   }
   return GenericInst{std::string(name.str), params};
 }
@@ -220,9 +239,9 @@ std::unique_ptr<StructDecl> Parser::struct_declaration() {
   namespaces.pop_back();
   add_name<StructDecl *>(name, res.get());
 
-  for (auto &fun_ptr : res->methods) {
-    fun_ptr->method_of = res.get();
-  }
+  //for (auto &fun_ptr : res->methods) {
+  //  fun_ptr->method_of = res.get();
+  //}
 
   expect(RIGHT_BRACE, "Expect '}' after struct body");
   return res;
@@ -277,28 +296,31 @@ std::unique_ptr<EnumDecl> Parser::enum_declaration() {
   namespaces.pop_back();
   add_name<EnumDecl *>(name, res.get());
 
-  for (auto &fun_ptr : res->methods) {
-    fun_ptr->method_of = res.get();
-  }
+  //for (auto &fun_ptr : res->methods) {
+  //  fun_ptr->method_of = res.get();
+  //}
 
   expect(RIGHT_BRACE, "Expect '}' after enum body.");
   return res;
 }
 
 std::unique_ptr<FunDecl> Parser::function_declaration() {
-  Token name = expect(IDENTIFIER, "Expected function name.");
-  expect(LEFT_PAREN, "Expect '(' after function name.");
+  Token base_name = cur_token(); // save for reserve_name hack
+  auto generic_name = name_generic_params();
 
-  auto namesp = std::make_unique<Namespace>(namespaces.back());
-  namespaces.push_back(namesp.get());
+  auto fun_namesp = std::make_unique<Namespace>(namespaces.back());
+  namespaces.push_back(fun_namesp.get());
   // function can refer to itself in body
-  reserve_name<FunDecl *>(name);
+  reserve_name<FunDecl *>(base_name);
 
   std::vector<std::unique_ptr<VarDecl>> parameters;
   GenericInst return_type("unit");
   std::unique_ptr<Block> body(nullptr);
 
+  expect(LEFT_PAREN, "Expect '(' for function parameters.");
+
   try {
+    // parse parameter list
     if (!check(RIGHT_PAREN)) {
       do {
         Token name =
@@ -314,24 +336,27 @@ std::unique_ptr<FunDecl> Parser::function_declaration() {
     }
     expect(RIGHT_PAREN, "Expect ')' after parameters.");
 
+    // parse return type
     if (!check(LEFT_BRACE)) {
       return_type = type_name();
     }
+
+    // parse body
     expect(LEFT_BRACE, "Expect '{' before function body.");
-    body = block(std::move(namesp));
+    body = block(std::move(fun_namesp));
+
   } catch (ParseError &err) {
     namespaces.pop_back();
     throw err;
   }
   auto res = std::make_unique<FunDecl>(
-      name, GenericName{std::string(name.str), {}}, std::move(parameters),
-      return_type, std::move(body)
+      base_name, generic_name, std::move(parameters), return_type,
+      std::move(body)
   );
-  link_name<FunDecl *>(name, res.get());
+  link_name<FunDecl *>(base_name, res.get());
 
   namespaces.pop_back();
-  add_name<FunDecl *>(name, res.get());
-  // check for return type
+  add_name<FunDecl *>(base_name, res.get());
   return res;
 }
 
@@ -508,7 +533,7 @@ Expr Parser::expression_bp(int min_bp) {
       case LEFT_PAREN: {
         advance();
         std::vector<Expr> args = argument_list();
-        auto *var = std::get_if<std::unique_ptr<Variable>>(&lhs.value().node);
+        auto *var = std::get_if<std::unique_ptr<NamedValue>>(&lhs.value().node);
         if (var != nullptr && (*var)->name.str == "__ref") {
           if (args.size() != 1) {
             error_prev("__ref can only be called on one argument.");
@@ -540,7 +565,9 @@ Expr Parser::expression_bp(int min_bp) {
       case LEFT_BRACKET: {
         advance();
         std::vector<Expr> args = index_argument_list();
-        lhs = Expr{std::make_unique<Index>(std::move(lhs.value()), std::move(args))};
+        lhs = Expr{
+            std::make_unique<Index>(std::move(lhs.value()), std::move(args))
+        };
         break;
       }
       case DOT: {
@@ -633,7 +660,7 @@ Expr Parser::expression_lhs(const Token &token) {
     // remove quotes in string literal
     return Expr{std::make_unique<Literal>(to_raw_string(token.str))};
   case CHARACTER: return Expr{std::make_unique<Literal>(parse_character(token.str))};
-  case IDENTIFIER: return Expr{std::make_unique<Variable>(token)};
+  case IDENTIFIER: return Expr{std::make_unique<NamedValue>(token)};
   case IF: {
     std::vector<std::unique_ptr<If::Branch>> branches;
     Expr condition = expression_bp(0);
@@ -761,6 +788,9 @@ std::vector<Expr> Parser::index_argument_list() {
     } while (match(COMMA));
   }
   expect(RIGHT_BRACKET, "Expect ']' after arguments.");
+  if (args.empty()) {
+    error_prev("[] must be non-empty.");
+  }
   return args;
 }
 
@@ -768,16 +798,6 @@ AST Parser::parse() {
   std::vector<Declaration> decls;
   auto globals = std::make_unique<Namespace>(nullptr);
   namespaces.push_back(globals.get());
-
-  std::vector<std::unique_ptr<Primitive>> primitives;
-  std::vector<std::unique_ptr<BuiltinType>> builtin_types;
-
-  for (auto name : default_primitives) {
-    primitives.push_back(std::make_unique<Primitive>(
-        Token::make_builtin(name, Lexeme::IDENTIFIER)
-    ));
-    add_name<Primitive *>(primitives.back()->name, primitives.back().get());
-  }
 
   // if (globals.names.contains(name)) {
   //   fmt::print(stderr, "Globals contained name '{}' matching builtin.\n",
@@ -787,32 +807,6 @@ AST Parser::parse() {
   // struct Ref[T] {
   //   T *ptr;
   // }
-  // clang-format off
-  builtin_types.emplace_back(std::make_unique<BuiltinType>(
-      Token::make_builtin("Ref", Lexeme::IDENTIFIER), GenericName{"Ref", {"T"}}
-  ));
-  add_name<BuiltinType *>(builtin_types.back()->name, builtin_types.back().get());
-
-  builtin_types.emplace_back(std::make_unique<BuiltinType>(
-      Token::make_builtin("VarRef", Lexeme::IDENTIFIER), GenericName{"VarRef", {"T"}}
-  ));
-  add_name<BuiltinType *>(builtin_types.back()->name, builtin_types.back().get());
-
-  builtin_types.emplace_back(std::make_unique<BuiltinType>(
-      Token::make_builtin("Span", Lexeme::IDENTIFIER), GenericName{"Span", {"T"}}
-  ));
-  add_name<BuiltinType *>(builtin_types.back()->name, builtin_types.back().get());
-
-  builtin_types.emplace_back(std::make_unique<BuiltinType>(
-      Token::make_builtin("VarSpan", Lexeme::IDENTIFIER), GenericName{"VarSpan", {"T"}}
-  ));
-  add_name<BuiltinType *>(builtin_types.back()->name, builtin_types.back().get());
-
-  builtin_types.emplace_back(std::make_unique<BuiltinType>(
-      Token::make_builtin("Array", Lexeme::IDENTIFIER), GenericName{"Array", {"T", "N"}}
-  ));
-  add_name<BuiltinType *>(builtin_types.back()->name, builtin_types.back().get());
-  // clang-format on
 
   while (!is_at_end()) {
     Stmt decl = toplevel_declaration();
@@ -821,10 +815,7 @@ AST Parser::parse() {
     }
   }
 
-  return AST(
-      std::move(decls), std::move(primitives), std::move(builtin_types),
-      std::move(globals)
-  );
+  return AST(std::move(decls), std::move(globals));
 }
 
 } // namespace cinnabar

@@ -33,12 +33,14 @@
   * `Vec!int`, `Map!(Vec!int, Map!(int, int))`
   * `Vec\int`, `Map\[Vec\int, Map\[int, int]]`
 
+
+* For now, use `[]` for generics and indexing - resolve in name resolution.
+
 ```Cinnabar
 fun f[T, R](T container, R elem) {
   #[let x = fib(35)]
   let i = if container.contains(elem) { 25 } else { 15 }
 }
-
 ```
 
 ## Reference and dereference

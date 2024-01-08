@@ -8,7 +8,11 @@ Stages
   * Parse into stage 1 AST
   * Struct, Enum, Function, control flow nodes
   * Create symbol table for each namespace
-* Resolver/Typechecker
+  * Generic arguments are ambiguous with indexing operation - fix in name
+  resolution
+* Name Resolver/Typechecker
+  * Current have name resolution and type checking in same pass - almost
+  definitely need to separate later.
   * Resolve all symbols
   * Create new typed AST with types for each expression/node
   * Toplevel: find all struct/enum definitions, recursively add nested definitions?
@@ -21,3 +25,14 @@ Stages
 
 C Backend
   * Topological sort of types and functions
+
+Types are:
+* Unit, `()`
+* Primitive, i.e. basic integer types
+* Functions
+* Reference/Pointer
+* Array
+  * Unsized array (Rust slice `[T]`) included
+* Span - fat pointer `&[T]` - isn't really necessary as part of AST?
+* Generic - generic type parameter - not necessary in TAST?
+* Path - struct and enum definitions follow paths for now
