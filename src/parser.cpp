@@ -1,4 +1,7 @@
 #include "parser.hpp"
+#include "ast.hpp"
+#include "lexer.hpp"
+#include "tast.hpp"
 
 #include <unordered_set>
 
@@ -128,47 +131,94 @@ void Parser::synchronize() {
   }
 }
 
-// parses a generic declaration like S[T, R]
-GenericName Parser::name_generic_params() {
+// converts a valid string literal with escape sequences and enclosing ""
+// to literal without escape sequences
+std::string to_raw_string(std::string_view literal) {
+  std::string res{};
+  res.reserve(literal.size());
+  for (size_t i = 1; i + 1 < literal.size(); i++) {
+    switch (literal[i]) {
+    case '\\': {
+      i++;
+      // clang-format off
+      switch (literal[i]) {
+      case '0': res += '\0'; break;
+      case '\'': res += '\''; break;
+      case '"': res += '"'; break;
+      case '\\': res += '\\'; break;
+      case 't': res += '\t'; break;
+      case 'n': res += '\n'; break;
+      // clang-format on
+      }
+      break;
+    }
+    default:
+      res += literal[i];
+      break;
+    }
+  }
+  return res;
+}
+
+
+// parses a generic declaration like S[T, R, N i32]
+GenericSignature Parser::generic_signature() {
   Token base_name = expect(IDENTIFIER, "Expected name.");
-  std::vector<std::string> params;
+  std::vector<GenericParam> params;
   if (match(LEFT_BRACKET)) {
     do {
-      params.push_back(
-          std::string{expect(IDENTIFIER, "Expected generic parameter").str}
-      );
+      auto name = expect(IDENTIFIER, "Expected generic parameter name");
+      if (match(COMMA)) {
+        // value param
+        auto type = generic_signature();
+        params.push_back(GenericParam{name, ValueParamData{std::move(type)}});
+      }
+      else {
+        params.push_back(GenericParam{name, TypeParamData{}});
+      }
     } while (match(COMMA));
     expect(RIGHT_BRACKET, "Expected ']' after generic parameter list");
   }
 
-  return GenericName{std::string{base_name.str}, params};
+  return GenericSignature{base_name, std::move(params)};
 }
 
-GenericInst Parser::type_name() {
+// parses a generic instance, e.g. Array[Array[i32, 4], 5]
+// or Foo["abc", 4, i32]
+GenericInst Parser::generic_instance() {
   Token name = expect(IDENTIFIER, "Expected type name.");
-  std::vector<GenericInst> params;
+  std::vector<GenericArg> args;
   if (match(LEFT_BRACKET)) {
-    if (name.str == "Array") {
-      params.push_back(type_name());
-      match(COMMA);
-      params.push_back(GenericInst{
-          expect(INTEGER, "Expect integer parameter for Array[T, N].").str
-      });
-    } else {
-      do {
-        params.push_back(type_name());
-      } while (match(COMMA));
-    }
+    do {
+      auto token = peek(0);
+      // clang-format off
+      if (token.lexeme == IDENTIFIER) {
+        args.push_back(GenericArg{generic_instance()});
+      }
+      else {
+        advance();
+        switch (token.lexeme) {
+        case TRUE:      args.push_back(GenericArg{Literal{true}}); break;
+        case FALSE:     args.push_back(GenericArg{Literal{false}}); break;
+        case INTEGER:   args.push_back(GenericArg{Literal{std::stoi(std::string(token.str))}}); break;
+        case DECIMAL:   args.push_back(GenericArg{Literal{std::stod(std::string(token.str))}}); break;
+        case STRING:    args.push_back(GenericArg{Literal{to_raw_string(token.str)}}); break;
+        case CHARACTER: args.push_back(GenericArg{Literal{parse_character(token.str)}}); break;
+        case IDENTIFIER:
+        default: error_cur("Unexpected token in generic instance.");
+        }
+      }
+      // clang-format on
+    } while (match(COMMA));
     expect(RIGHT_BRACKET, "Expect ']' after generic parameters.");
   }
-  return GenericInst{std::string(name.str), params};
+  return GenericInst{name, args};
 }
 
-TypedName Parser::ident_type() {
-  TypedName res(Token(), GenericInst{""});
-  res.name = expect(IDENTIFIER, "Expected identifier.");
-  res.gentype = type_name();
-  return res;
+std::pair<Token, GenericInst> Parser::name_type() {
+  auto name = expect(IDENTIFIER, "Expected identifier.");
+  auto generic_inst = generic_instance();
+  return {name, std::move(generic_inst)};
 }
 
 Stmt Parser::toplevel_declaration() {
@@ -196,32 +246,36 @@ Stmt Parser::toplevel_declaration() {
 }
 
 std::unique_ptr<StructDecl> Parser::struct_declaration() {
-  Token name = expect(IDENTIFIER, "Expected struct name.");
+  auto signature = generic_signature();
   expect(LEFT_BRACE, "Expect '{' before struct body.");
 
-  std::vector<TypedName> fields;
+  std::vector<std::pair<Token, GenericInst>> fields;
   std::vector<std::unique_ptr<FunDecl>> methods;
   auto namesp = std::make_unique<Namespace>(namespaces.back());
   namespaces.push_back(namesp.get());
-  reserve_name<StructDecl *>(name);
+  reserve_name<StructDecl *>(signature.base_name);
+  // should also reserve generic params?
 
   std::unordered_set<std::string_view> member_names;
   try {
     while (!check(RIGHT_BRACE) && !is_at_end()) {
       if (match(FUN)) {
         methods.emplace_back(function_declaration());
-        if (member_names.contains(methods.back()->name.str)) {
-          throw error_at(methods.back()->name, "Redefinition of member name");
+        if (member_names.contains(methods.back()->name_params.base_name.str)) {
+          throw error_at(methods.back()->name_params.base_name, "Redefinition of member name");
         }
-        member_names.insert(methods.back()->name.str);
+        member_names.insert(methods.back()->name_params.base_name.str);
       } else if (match(SEMICOLON)) {
         // skip
       } else {
-        auto field_decl = ident_type();
-        if (member_names.contains(field_decl.name.str)) {
-          throw error_at(field_decl.name, "Redefinition of member name");
+        auto field_decl = name_type();
+
+        expect(SEMICOLON, "Expected semicolon after field definition");
+
+        if (member_names.contains(field_decl.first.str)) {
+          throw error_at(field_decl.first, "Redefinition of member name");
         }
-        member_names.insert(field_decl.name.str);
+        member_names.insert(field_decl.first.str);
         fields.emplace_back(field_decl);
       }
     }
@@ -231,13 +285,13 @@ std::unique_ptr<StructDecl> Parser::struct_declaration() {
   }
 
   auto res = std::make_unique<StructDecl>(
-      name, GenericName{std::string(name.str), {}}, fields, std::move(methods),
+      std::move(signature), fields, std::move(methods),
       std::move(namesp)
   );
-  link_name<StructDecl *>(name, res.get());
+  link_name<StructDecl *>(signature.base_name, res.get());
 
   namespaces.pop_back();
-  add_name<StructDecl *>(name, res.get());
+  add_name<StructDecl *>(signature.base_name, res.get());
 
   //for (auto &fun_ptr : res->methods) {
   //  fun_ptr->method_of = res.get();
@@ -248,38 +302,40 @@ std::unique_ptr<StructDecl> Parser::struct_declaration() {
 }
 
 std::unique_ptr<EnumDecl> Parser::enum_declaration() {
-  Token name = expect(IDENTIFIER, "Expected enum name.");
+  auto signature = generic_signature();
   expect(LEFT_BRACE, "Expect '{' before enum body.");
 
-  std::vector<TypedName> variants;
+  std::vector<std::pair<Token, GenericInst>> variants;
   std::vector<std::unique_ptr<FunDecl>> methods;
   auto namesp = std::make_unique<Namespace>(namespaces.back());
   namespaces.push_back(namesp.get());
-  reserve_name<EnumDecl *>(name);
+  reserve_name<EnumDecl *>(signature.base_name);
 
   std::unordered_set<std::string_view> member_names;
   try {
     while (!check(RIGHT_BRACE) && !is_at_end()) {
       if (match(FUN)) {
         methods.emplace_back(function_declaration());
-        if (member_names.contains(methods.back()->name.str)) {
-          throw error_at(methods.back()->name, "Redefinition of member name");
+        if (member_names.contains(methods.back()->name_params.base_name.str)) {
+          throw error_at(methods.back()->name_params.base_name, "Redefinition of member name");
         }
-        member_names.insert(methods.back()->name.str);
+        member_names.insert(methods.back()->name_params.base_name.str);
       } else if (match(SEMICOLON)) {
         // continue
       } else {
-        TypedName variant{
-            expect(IDENTIFIER, "Expected identifier."), GenericInst{"unit"}
-        };
+        auto variant_name = expect(IDENTIFIER, "Expected variant identifier");
+        GenericInst type{Token::make_builtin("unit", IDENTIFIER), {}};
         if (!check(SEMICOLON)) {
-          variant.gentype = type_name();
+          type = generic_instance();
         }
-        if (member_names.contains(variant.name.str)) {
-          throw error_at(variant.name, "Redefinition of member name");
+
+        expect(SEMICOLON, "Expected semicolon after variant definition");
+
+        if (member_names.contains(variant_name.str)) {
+          throw error_at(variant_name, "Redefinition of member variant_name");
         }
-        member_names.insert(variant.name.str);
-        variants.emplace_back(variant);
+        member_names.insert(variant_name.str);
+        variants.emplace_back(variant_name, type);
       }
     }
   } catch (ParseError &err) {
@@ -288,13 +344,13 @@ std::unique_ptr<EnumDecl> Parser::enum_declaration() {
   }
 
   auto res = std::make_unique<EnumDecl>(
-      name, GenericName{std::string(name.str), {}}, variants,
+      std::move(signature), variants,
       std::move(methods), std::move(namesp)
   );
-  link_name<EnumDecl *>(name, res.get());
+  link_name<EnumDecl *>(signature.base_name, res.get());
 
   namespaces.pop_back();
-  add_name<EnumDecl *>(name, res.get());
+  add_name<EnumDecl *>(signature.base_name, res.get());
 
   //for (auto &fun_ptr : res->methods) {
   //  fun_ptr->method_of = res.get();
@@ -305,16 +361,15 @@ std::unique_ptr<EnumDecl> Parser::enum_declaration() {
 }
 
 std::unique_ptr<FunDecl> Parser::function_declaration() {
-  Token base_name = cur_token(); // save for reserve_name hack
-  auto generic_name = name_generic_params();
+  auto signature = generic_signature();
 
   auto fun_namesp = std::make_unique<Namespace>(namespaces.back());
   namespaces.push_back(fun_namesp.get());
   // function can refer to itself in body
-  reserve_name<FunDecl *>(base_name);
+  reserve_name<FunDecl *>(signature.base_name);
 
   std::vector<std::unique_ptr<VarDecl>> parameters;
-  GenericInst return_type("unit");
+  GenericInst return_type(Token::make_builtin("unit", IDENTIFIER), {});
   std::unique_ptr<Block> body(nullptr);
 
   expect(LEFT_PAREN, "Expect '(' for function parameters.");
@@ -328,7 +383,7 @@ std::unique_ptr<FunDecl> Parser::function_declaration() {
         if (!check(IDENTIFIER)) {
           error_cur("Function parameter must have type specifier");
         }
-        auto type = type_name();
+        auto type = generic_instance();
         auto param = std::make_unique<VarDecl>(name, type, std::nullopt);
         add_name<VarDecl *>(name, param.get());
         parameters.push_back(std::move(param));
@@ -338,7 +393,7 @@ std::unique_ptr<FunDecl> Parser::function_declaration() {
 
     // parse return type
     if (!check(LEFT_BRACE)) {
-      return_type = type_name();
+      return_type = generic_instance();
     }
 
     // parse body
@@ -350,13 +405,13 @@ std::unique_ptr<FunDecl> Parser::function_declaration() {
     throw err;
   }
   auto res = std::make_unique<FunDecl>(
-      base_name, generic_name, std::move(parameters), return_type,
+      std::move(signature), std::move(parameters), return_type,
       std::move(body)
   );
-  link_name<FunDecl *>(base_name, res.get());
+  link_name<FunDecl *>(signature.base_name, res.get());
 
   namespaces.pop_back();
-  add_name<FunDecl *>(base_name, res.get());
+  add_name<FunDecl *>(signature.base_name, res.get());
   return res;
 }
 
@@ -365,7 +420,7 @@ std::unique_ptr<VarDecl> Parser::variable_declaration() {
   std::optional<GenericInst> type;
   std::optional<Expr> initializer = std::nullopt;
   if (!check(EQUAL)) {
-    type = type_name();
+    type = generic_instance();
   }
   if (match(EQUAL)) {
     initializer = Expr{expression_bp(0)};
@@ -608,45 +663,6 @@ Expr Parser::expression_bp(int min_bp) {
     throw error_prev("Expected expression.");
   }
   return std::move(lhs.value());
-}
-
-// converts a valid string literal with escape sequences and enclosing ""
-// to literal without escape sequences
-std::string to_raw_string(std::string_view literal) {
-  std::string res{};
-  res.reserve(literal.size());
-  for (size_t i = 1; i + 1 < literal.size(); i++) {
-    switch (literal[i]) {
-    case '\\': {
-      i++;
-      switch (literal[i]) {
-      case '0':
-        res += '\0';
-        break;
-      case '\'':
-        res += '\'';
-        break;
-      case '"':
-        res += '"';
-        break;
-      case '\\':
-        res += '\\';
-        break;
-      case 't':
-        res += '\t';
-        break;
-      case 'n':
-        res += '\n';
-        break;
-      }
-      break;
-    }
-    default:
-      res += literal[i];
-      break;
-    }
-  }
-  return res;
 }
 
 Expr Parser::expression_lhs(const Token &token) {

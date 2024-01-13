@@ -54,37 +54,52 @@ using DeclVariant = std::variant<
 using DeclPtr = std::variant<EnumDecl *, FunDecl *, StructDecl *, VarDecl *>;
 using TypeDeclPtr = std::variant<EnumDecl *, StructDecl *>;
 
-struct GenericParam;
+using LiteralVariant =
+    std::variant<int32_t, int64_t, float, double, bool, char, std::string>;
+std::string to_string(LiteralVariant v);
 
-// Something like Array[T, N]
-struct GenericName {
-  Token base_name;
-  std::vector<GenericParam> params;
-  [[nodiscard]] bool is_concrete() const;
+struct Literal {
+  LiteralVariant val;
+  Literal(LiteralVariant val);
 };
 
-struct TypeParamData { };
-
-struct ValueParamData {
-  GenericName type;
-};
-
-struct GenericParam {
-  Token name;
-  std::variant<TypeParamData, ValueParamData> param;
-};
-
+struct GenericArg;
 // Array[Array[i32, 4], 8]
 // needs to be reworked at some point, especially for const generics
 struct GenericInst {
-  std::string base_name;
-  std::vector<GenericInst> args;
+  Token base_name;
+  std::vector<GenericArg> args;
 
-  GenericInst(std::string_view base_name);
-  GenericInst(std::string_view base_name, std::vector<GenericInst> args);
+  GenericInst(Token base_name);
+  GenericInst(Token base_name, std::vector<GenericArg> args);
 
   [[nodiscard]] std::string to_string() const;
   [[nodiscard]] bool is_concrete() const;
+};
+
+struct GenericArg {
+  std::variant<GenericInst, Literal> data;
+  [[nodiscard]] std::string to_string() const;
+};
+
+struct GenericParam;
+// Something like Array[T, N i32]
+// or Foo[A Array[i32, 4], T]
+struct GenericSignature {
+  Token base_name;
+  std::vector<GenericParam> params;
+  [[nodiscard]] bool is_concrete() const;
+  [[nodiscard]] std::string to_string() const;
+};
+
+struct TypeParamData {};
+struct ValueParamData {
+  GenericSignature type;
+};
+struct GenericParam {
+  Token name;
+  std::variant<TypeParamData, ValueParamData> param;
+  [[nodiscard]] std::string to_string() const;
 };
 
 struct Namespace {
@@ -128,18 +143,14 @@ struct Expr {
   ExprVariant node;
   Expr(ExprVariant node);
 
+  // clang-format off
   template <typename T>
-  bool is() {
-    return std::holds_alternative<T>(node);
-  }
+  bool is() { return std::holds_alternative<T>(node); }
   template <typename T>
-  T &as() {
-    return std::get<T>(node);
-  }
+  T &as() { return std::get<T>(node); }
   template <typename T>
-  T *get_node_as() {
-    return std::get_if<std::unique_ptr<T>>(node);
-  }
+  T *get_node_if() { return std::get_if<std::unique_ptr<T>>(&node)->get(); }
+  // clang-format on
   std::string s_expr(int cur, int ind); // current indent, indent
 };
 
@@ -188,16 +199,6 @@ struct Index {
   std::vector<Expr> args;
 };
 
-using LiteralVariant =
-    std::variant<int32_t, int64_t, float, double, bool, char, std::string>;
-
-std::string to_string(LiteralVariant v);
-
-struct Literal {
-  LiteralVariant val;
-  Literal(LiteralVariant val);
-};
-
 struct NamedValue {
   Token name; // replace with 'Path' construct later
   NamedValue(Token name);
@@ -222,35 +223,26 @@ struct Assign {
 struct Break {};
 struct Continue {};
 
-// enum variants, struct fields
-struct TypedName {
-  Token name;
-  GenericInst gentype;
-  inline TypedName(Token name, GenericInst gentype)
-      : name(std::move(name)), gentype(std::move(gentype)) {}
-};
-
 struct EnumDecl {
-  Token name;
-  GenericName name_param;
-  std::vector<TypedName> variants; // unit gentype for empty
+  GenericSignature name_params;
+  std::vector<std::pair<Token, GenericInst>> variants; // unit type for empty
   std::vector<std::unique_ptr<FunDecl>> methods;
   std::unique_ptr<Namespace> namesp;
   EnumDecl(
-      Token name, GenericName name_param, std::vector<TypedName> variants,
+      GenericSignature name_params,
+      std::vector<std::pair<Token, GenericInst>> variants,
       std::vector<std::unique_ptr<FunDecl>> methods,
       std::unique_ptr<Namespace> namesp
   );
 };
 
 struct FunDecl {
-  Token name;
-  GenericName name_param;
+  GenericSignature name_params;
   std::vector<std::unique_ptr<VarDecl>> params;
   GenericInst return_type;
   std::unique_ptr<Block> body;
   FunDecl(
-      Token name, GenericName name_param,
+      GenericSignature name_params,
       std::vector<std::unique_ptr<VarDecl>> params, GenericInst return_type,
       std::unique_ptr<Block> body
   );
@@ -258,13 +250,13 @@ struct FunDecl {
 };
 
 struct StructDecl {
-  Token name;
-  GenericName name_param;
-  std::vector<TypedName> fields;
+  GenericSignature name_params;
+  std::vector<std::pair<Token, GenericInst>> fields;
   std::vector<std::unique_ptr<FunDecl>> methods;
   std::unique_ptr<Namespace> namesp;
   StructDecl(
-      Token name, GenericName name_param, std::vector<TypedName> fields,
+      GenericSignature name_params,
+      std::vector<std::pair<Token, GenericInst>> fields,
       std::vector<std::unique_ptr<FunDecl>> methods,
       std::unique_ptr<Namespace> namesp
   );

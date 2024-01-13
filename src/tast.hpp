@@ -68,6 +68,10 @@ struct Path {
       path_value;
 
   size_t namespace_id;
+  size_t item_index; // index of path_value in tast.items
+
+  template <typename T>
+  T *get_if() { return std::get_if<T>(&path_value); }
 
   bool operator==(const Path &other) const = default;
   std::string to_string(std::span<const TypeRef> types) const;
@@ -78,23 +82,15 @@ using TypeId = int;
 struct None {};
 struct Unit {};
 
+// clang-format off
 enum Primitive {
   PRIM_BOOL,
-  PRIM_I8,
-  PRIM_I16,
-  PRIM_I32,
-  PRIM_I64,
-  PRIM_I128,
-  PRIM_ISIZE,
-  PRIM_U8,
-  PRIM_U16,
-  PRIM_U32,
-  PRIM_U64,
-  PRIM_U128,
-  PRIM_USIZE,
-  PRIM_F32,
-  PRIM_F64
+  PRIM_I8, PRIM_I16, PRIM_I32, PRIM_I64, PRIM_I128, PRIM_ISIZE,
+  PRIM_U8, PRIM_U16, PRIM_U32, PRIM_U64, PRIM_U128, PRIM_USIZE,
+  PRIM_F32, PRIM_F64
 };
+extern std::vector<Primitive> primitive_types;
+// clang-format on
 
 const char *name(Primitive p);
 
@@ -124,6 +120,17 @@ using TypeData =
 struct TypeRef {
   TypeData data;
 
+  // clang-format off
+  template <typename T>
+  bool is() { return std::holds_alternative<T>(data); }
+
+  template <typename T>
+  T &as() { return std::get<T>(data); }
+
+  template <typename T>
+  T *get_if() { return std::get_if<T>(&data); }
+  // clang-format on
+  bool operator==(const TypeRef &other) const;
   std::string to_string(const std::span<const TypeRef> types) const;
 };
 
@@ -137,18 +144,21 @@ struct ValueParam {
 };
 
 using TGenericParam = std::variant<TypeParam, ValueParam>;
-using GenericArg = std::variant<TypeRef, std::unique_ptr<TVarInst>>;
+
+struct TGenericArg {
+  std::variant<TypeRef, std::unique_ptr<TVarInst>> data;
+  [[nodiscard]] std::string to_string(std::span<const TypeRef> types) const;
+};
 
 std::string to_string(
-    Token base, std::span<const GenericArg> args,
+    Token base, std::span<const TGenericArg> args,
     std::span<const TypeRef> types
 );
-std::string
-to_string(const GenericArg &arg, std::span<const TypeRef> types);
 
-struct NameWithArgs {
+struct TGenericInst {
   Token base_name;
-  std::vector<GenericArg> args;
+  std::vector<TGenericArg> args;
+  [[nodiscard]] std::string to_string(std::span<const TypeRef> types) const;
 };
 } // namespace cinnabar
 
@@ -170,12 +180,12 @@ struct NameWithArgs {
 // };
 //
 // template <>
-// struct std::hash<cinnabar::NameWithArgs> {
-//   std::size_t operator()(const cinnabar::NameWithArgs &name) const {
+// struct std::hash<cinnabar::TGenericInst> {
+//   std::size_t operator()(const cinnabar::TGenericInst &name) const {
 //     std::size_t res = std::hash<std::string_view>{}(name.base_name.str);
 //     res = std::rotl(res, 1) ^ std::hash<std::size_t>{}(name.args.size());
-//     for (const cinnabar::GenericArg &arg : name.args) {
-//       res = std::rotl(res, 1) ^ std::hash<cinnabar::GenericArg>{}(arg);
+//     for (const cinnabar::TGenericArg &arg : name.args) {
+//       res = std::rotl(res, 1) ^ std::hash<cinnabar::TGenericArg>{}(arg);
 //     }
 //     return res;
 //   }
@@ -190,15 +200,14 @@ struct TNamespace {
   std::unordered_map<std::string, ItemRef> items;
   size_t id;
   TNamespace *parent;
+  TNamespace(size_t id, TNamespace *parent);
 };
 
-struct FunctionGen {
-
-};
+struct FunctionGen {};
 
 struct FunctionInst {
   Token base_name;
-  std::vector<GenericArg> generic_args;
+  std::vector<TGenericArg> generic_args;
   std::vector<std::unique_ptr<TVarInst>> params;
   TypeRef return_type = {None{}};
 
@@ -207,13 +216,11 @@ struct FunctionInst {
   std::string to_string(std::span<const TypeRef> types) const;
 };
 
-struct EnumGen {
-
-};
+struct EnumGen {};
 
 struct EnumInst {
   Token base_name;
-  std::vector<GenericArg> generic_args;
+  std::vector<TGenericArg> generic_args;
   std::unique_ptr<TNamespace> namesp;
 
   // name: {type, index}
@@ -223,13 +230,11 @@ struct EnumInst {
   std::string to_string(std::span<const TypeRef> types) const;
 };
 
-struct StructGen {
-
-};
+struct StructGen {};
 
 struct StructInst {
   Token base_name;
-  std::vector<GenericArg> generic_args;
+  std::vector<TGenericArg> generic_args;
   std::unique_ptr<TNamespace> namesp;
 
   // name: {type, index}
@@ -256,13 +261,13 @@ struct TExpr {
   TExpr();
   TExpr(TExprVariant node);
   template <typename T>
-  bool is() {
-    return std::holds_alternative<T>(node);
-  }
+  bool is() { return std::holds_alternative<T>(node); }
+
   template <typename T>
-  T &as() {
-    return std::get<T>(node);
-  }
+  T &as() { return std::get<T>(node); }
+
+  template <typename T>
+  T *get_node_if() { return std::get_if<std::unique_ptr<T>>(&node)->get(); }
 };
 
 struct TBinary {

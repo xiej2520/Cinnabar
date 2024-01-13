@@ -58,6 +58,7 @@ struct TypeResolver {
   // avoid cycles, index of items
   std::unordered_set<size_t> currently_creating;
   std::vector<int> type_topo_order;
+  std::vector<TNamespace *> namespaces;
 
   Namespace *cur_ast_namesp = nullptr;
   TNamespace *cur_tnamesp = nullptr;
@@ -69,25 +70,41 @@ struct TypeResolver {
 
   PushNamespace push_namespace(Namespace *namesp, TNamespace *tnamesp);
   PushFun push_fun(FunctionInst *fun, TNamespace *fun_tnamesp);
+  
+  std::unique_ptr<TNamespace> make_tnamespace(TNamespace *parent_tnamesp);
 
   TypeResolver(AST &ast);
 
-  TypeRef get_type(NameWithArgs concrete);
-  FunctionInst *get_function(NameWithArgs concrete);
+  TGenericArg resolve(const GenericArg &arg);
+  TGenericInst resolve(const GenericInst &inst);
+  std::unique_ptr<TLiteral> resolve(const Literal &literal);
 
+  // retrieve items from namespace hierarchy
+  TypeRef get_type(TGenericInst concrete);
+  FunctionInst *get_function(TGenericInst concrete);
   TVarInst *get_var_local_global(std::string_view name);
-
-  TypeRef find_unary_op(UnaryOp op, const TExpr &operand);
-  TypeRef find_binary_op(BinaryOp op, TypeRef lhs_type, TypeRef rhs_type);
+  ItemRef get_item_ref(const std::string &name);
 
   // tnamesp is the TNamespace where the type will be declared
   TypeRef create_struct_type(
-      StructDecl *decl, std::span<const GenericArg> args,
+      StructDecl *decl, std::vector<TGenericArg> args,
       TNamespace *parent_tnamesp
   );
-  TypeRef add_type(
-      const NameWithArgs &concrete, TypeDeclPtr decl, TNamespace *parent_tnamesp
+  TypeRef create_enum_type(
+      EnumDecl *decl, std::vector<TGenericArg> args,
+      TNamespace *parent_tnamesp
   );
+  FunctionInst *create_function(FunDecl *decl, std::vector<TGenericArg> args, TNamespace *parent_tnamesp);
+
+  TypeRef add_type(
+      const TGenericInst &concrete, TypeDeclPtr decl, TNamespace *parent_tnamesp
+  );
+  
+  // must be called with an Index with NamedValue callee
+  TGenericInst index_to_tgeneric_inst(Index &index);
+
+  TypeRef find_unary_op(UnaryOp op, const TExpr &operand);
+  TypeRef find_binary_op(BinaryOp op, TypeRef lhs_type, TypeRef rhs_type);
 
   // instantiates a concrete typed function from a (potentially generic)
   // untyped function definition

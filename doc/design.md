@@ -28,11 +28,12 @@ C Backend
 
 Types are:
 * Unit, `()`
-* Primitive, i.e. basic integer types
+* Primitive, i.e. basic integer types, bool
 * Functions
 * Reference/Pointer
 * Array
   * Unsized array (Rust slice `[T]`) included
 * Span - fat pointer `&[T]` - isn't really necessary as part of AST?
 * Generic - generic type parameter - not necessary in TAST?
-* Path - struct and enum definitions follow paths for now
+* Path - to user defined type
+  * Adt: algebraic data type, structs and enums

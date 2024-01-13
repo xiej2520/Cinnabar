@@ -46,9 +46,9 @@ class Parser {
   ParseError error_cur(std::string_view message);
   void synchronize();
 
-  GenericInst type_name();
-  GenericName name_generic_params();
-  TypedName ident_type();
+  GenericSignature generic_signature();
+  GenericInst generic_instance();
+  std::pair<Token, GenericInst> name_type();
 
   Stmt toplevel_declaration();
   std::unique_ptr<StructDecl> struct_declaration();

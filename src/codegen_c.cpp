@@ -52,6 +52,7 @@ namespace cinnabar {
 //}
 //
 //CodegenC::CodegenC(const TAST &tast) : tast(tast) {}
+CodegenC::CodegenC(const TAST &) {}
 //
 //std::string CodegenC::mangle_name(std::string_view name) {
 //  // C and C++ reserve:
@@ -666,7 +667,7 @@ namespace cinnabar {
 //  // clang-format on
 //}
 //
-//std::string CodegenC::generate() {
+std::string CodegenC::generate() {
 //  out = "";
 //  emit_include("<stdint.h>");
 //  emit_include("<stdbool.h>");
@@ -675,8 +676,9 @@ namespace cinnabar {
 //  emit_types();
 //  emit_functions();
 //
-//  return out;
-//}
+  std::string out{};
+  return out;
+}
 //
 //[[noreturn]] void CodegenC::error(std::string_view message) {
 //  fmt::print(stderr, "C Code Generation Error: {}\n", message);

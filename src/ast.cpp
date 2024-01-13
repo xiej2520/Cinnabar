@@ -12,18 +12,19 @@ const std::vector<std::string_view> default_primitives = {
     "u64",  "f32", "f64", "char", "bool", "isize", "usize",
 };
 
-[[nodiscard]] bool GenericName::is_concrete() const { return params.empty(); }
+[[nodiscard]] bool GenericSignature::is_concrete() const { return params.empty(); }
 
-GenericInst::GenericInst(std::string_view base_name) : base_name(base_name) {}
-GenericInst::GenericInst(std::string_view base_name, vector<GenericInst> args)
+GenericInst::GenericInst(Token base_name) : base_name(base_name) {}
+GenericInst::GenericInst(Token base_name, vector<GenericArg> args)
     : base_name(base_name), args(std::move(args)){};
 
 [[nodiscard]] std::string GenericInst::to_string() const {
-  auto res = base_name;
+  std::string res{base_name.str};
   if (!args.empty()) {
-    res.push_back('[');
+    res += '[';
     for (auto &child : args) {
-      res.append(child.to_string()).push_back(',');
+      res += child.to_string();
+      res += ',';
     }
     res.back() = ']';
   }
@@ -31,6 +32,38 @@ GenericInst::GenericInst(std::string_view base_name, vector<GenericInst> args)
 }
 
 [[nodiscard]] bool GenericInst::is_concrete() const { return args.empty(); }
+
+[[nodiscard]] std::string GenericArg::to_string() const {
+  return std::visit(overload{
+    [](const GenericInst &inst) { return inst.to_string(); },
+    [](const Literal &literal) { return cinnabar::to_string(literal.val); },
+  }, data);
+}
+
+[[nodiscard]] std::string GenericSignature::to_string() const {
+  std::string res{base_name.str};
+  if (!params.empty()) {
+    res += '[';
+    for (auto &child : params) {
+      res += child.to_string();
+      res += ',';
+    }
+    res.back() = ']';
+  }
+  return res;
+}
+
+[[nodiscard]] std::string GenericParam::to_string() const {
+  std::string res{name.str};
+  std::visit(overload{
+    [](TypeParamData) {},
+    [&](const ValueParamData &data) {
+      res += ',';
+      res += data.type.to_string();
+    },
+  }, param);
+  return res;
+}
 
 Namespace::Namespace(Namespace *parent) : parent(parent) {}
 
@@ -90,24 +123,24 @@ Declaration::Declaration(DeclVariant decl) : decl(std::move(decl)) {}
 
 // declaration statements
 EnumDecl::EnumDecl(
-    Token name, GenericName name_param, vector<TypedName> variants,
+    GenericSignature name_params, vector<std::pair<Token, GenericInst>> variants,
     vector<unique_ptr<FunDecl>> methods, unique_ptr<Namespace> namesp
 )
-    : name(name), name_param(std::move(name_param)), variants(variants),
+    : name_params(std::move(name_params)), variants(variants),
       methods(std::move(methods)), namesp(std::move(namesp)) {}
 
 FunDecl::FunDecl(
-    Token name, GenericName name_param, vector<unique_ptr<VarDecl>> params,
+    GenericSignature name_params, vector<unique_ptr<VarDecl>> params,
     GenericInst return_type, unique_ptr<Block> body
 )
-    : name(name), name_param(std::move(name_param)), params(std::move(params)),
+    : name_params(std::move(name_params)), params(std::move(params)),
       return_type(std::move(return_type)), body(std::move(body)) {}
 
 StructDecl::StructDecl(
-    Token name, GenericName name_param, vector<TypedName> fields,
+    GenericSignature name_params, vector<std::pair<Token, GenericInst>> fields,
     vector<unique_ptr<FunDecl>> methods, unique_ptr<Namespace> namesp
-)
-    : name(name), name_param(std::move(name_param)), fields(fields),
+):
+    name_params(std::move(name_params)), fields(fields),
       methods(std::move(methods)), namesp(std::move(namesp)) {}
 
 VarDecl::VarDecl(
@@ -147,7 +180,7 @@ Unary::Unary(UnaryOp op, Expr operand) : op(op), operand(std::move(operand)) {}
 Expr::Expr(ExprVariant node) : node(std::move(node)) {}
 
 std::string FunDecl::s_expr(int cur, int ind) {
-  std::string res = fmt::format("{:{}}(Fun[{}]\n", "", cur, name.str);
+  std::string res = fmt::format("{:{}}(Fun[{}]\n", "", cur, name_params.to_string());
   if (!body->namesp->names.empty()) {
     res += body->namesp->to_string(cur + ind);
   }
@@ -177,13 +210,13 @@ std::string Declaration::s_expr(int cur, int ind) {
   return std::visit(overload{
     [&](unique_ptr<EnumDecl> &decl) {
       std::string res =
-          fmt::format("{:{}}(Enum {}\n", "", cur, decl->name.str);
+          fmt::format("{:{}}(Enum {}\n", "", cur, decl->name_params.to_string());
       if (!decl->namesp->names.empty()) {
         res += decl->namesp->to_string(cur + ind);
       }
       for (auto &variant : decl->variants) {
         res += fmt::format("{:{}}{} {}\n", "", cur + ind,
-            variant.name.str, variant.gentype.to_string());
+            variant.first.str, variant.second.to_string());
       }
       for (auto &fun : decl->methods) {
         res += fmt::format("{:{}}({})\n", "", cur + ind,
@@ -195,11 +228,11 @@ std::string Declaration::s_expr(int cur, int ind) {
     [&](unique_ptr<StructDecl> &decl) {
       std::string res = fmt::format("{:{}}(Struct "
                                     "{}\n",
-          "", cur, decl->name.str);
+          "", cur, decl->name_params.to_string());
       res += decl->namesp->to_string(cur + ind);
       for (auto &field : decl->fields) {
         res += fmt::format(
-            "{:{}}{} {}\n", "", cur + ind, field.name.str, field.gentype.to_string());
+            "{:{}}{} {}\n", "", cur + ind, field.first.str, field.second.to_string());
       }
       for (auto &fun : decl->methods) {
         res += fun->s_expr(cur + ind, ind);
