@@ -45,13 +45,17 @@ struct Literal;
 struct NamedValue;
 struct Unary;
 
-// extern const std::vector<std::string_view> default_primitives;
+extern const std::vector<std::string_view> builtin_names;
 
 using DeclVariant = std::variant<
     std::unique_ptr<EnumDecl>, std::unique_ptr<FunDecl>,
     std::unique_ptr<StructDecl>, std::unique_ptr<VarDecl>>;
 
-using DeclPtr = std::variant<EnumDecl *, FunDecl *, StructDecl *, VarDecl *>;
+struct BuiltinType {
+  bool operator==(const BuiltinType &other) const = default;
+};
+
+using DeclPtr = std::variant<BuiltinType, EnumDecl *, FunDecl *, StructDecl *, VarDecl *>;
 using TypeDeclPtr = std::variant<EnumDecl *, StructDecl *>;
 
 using LiteralVariant =

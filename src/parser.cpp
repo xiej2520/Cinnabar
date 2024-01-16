@@ -29,7 +29,7 @@ template <typename T>
 void Parser::link_name(const Token &name, T decl) {
   Namespace *current = namespaces.back();
   if (!current->names.contains(name.str) ||
-      current->names[name.str] != DeclPtr(static_cast<T>(nullptr))) {
+      current->names[name.str] != DeclPtr{static_cast<T>(nullptr)}) {
     throw error_at(
         name, fmt::format("Internal error with linking name {}.", name.str)
     );
@@ -324,7 +324,7 @@ std::unique_ptr<EnumDecl> Parser::enum_declaration() {
         // continue
       } else {
         auto variant_name = expect(IDENTIFIER, "Expected variant identifier");
-        GenericInst type{Token::make_builtin("unit", IDENTIFIER), {}};
+        GenericInst type{Token::make_builtin("Unit", IDENTIFIER), {}};
         if (!check(SEMICOLON)) {
           type = generic_instance();
         }
@@ -369,7 +369,7 @@ std::unique_ptr<FunDecl> Parser::function_declaration() {
   reserve_name<FunDecl *>(signature.base_name);
 
   std::vector<std::unique_ptr<VarDecl>> parameters;
-  GenericInst return_type(Token::make_builtin("unit", IDENTIFIER), {});
+  GenericInst return_type(Token::make_builtin("Unit", IDENTIFIER), {});
   std::unique_ptr<Block> body(nullptr);
 
   expect(LEFT_PAREN, "Expect '(' for function parameters.");
@@ -815,14 +815,9 @@ AST Parser::parse() {
   auto globals = std::make_unique<Namespace>(nullptr);
   namespaces.push_back(globals.get());
 
-  // if (globals.names.contains(name)) {
-  //   fmt::print(stderr, "Globals contained name '{}' matching builtin.\n",
-  // name); abort();
-  // }
-
-  // struct Ref[T] {
-  //   T *ptr;
-  // }
+  for (auto name : builtin_names) {
+    add_name(Token::make_builtin(name, Lexeme::IDENTIFIER), BuiltinType{});
+  }
 
   while (!is_at_end()) {
     Stmt decl = toplevel_declaration();

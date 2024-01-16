@@ -52,7 +52,7 @@ struct TUnary;
 
 // types
 
-struct TypeRef;
+struct TypeRep;
 
 struct FunctionType;
 struct Ref;
@@ -67,14 +67,14 @@ struct Path {
       FunctionInst *>
       path_value;
 
-  size_t namespace_id;
-  size_t item_index; // index of path_value in tast.items
+  int namespace_id;
+  int item_index; // index of path_value in tast.items
 
   template <typename T>
   T *get_if() { return std::get_if<T>(&path_value); }
 
   bool operator==(const Path &other) const = default;
-  std::string to_string(std::span<const TypeRef> types) const;
+  std::string to_string(std::span<const TypeRep> types) const;
 };
 
 using TypeId = int;
@@ -117,7 +117,7 @@ struct Span {
 using TypeData =
     std::variant<None, Unit, Primitive, FunctionType, Ref, Array, Span, Path>;
 
-struct TypeRef {
+struct TypeRep {
   TypeData data;
 
   // clang-format off
@@ -130,8 +130,8 @@ struct TypeRef {
   template <typename T>
   T *get_if() { return std::get_if<T>(&data); }
   // clang-format on
-  bool operator==(const TypeRef &other) const;
-  std::string to_string(const std::span<const TypeRef> types) const;
+  bool operator==(const TypeRep &other) const;
+  std::string to_string(const std::span<const TypeRep> types) const;
 };
 
 struct TypeParam {
@@ -140,33 +140,43 @@ struct TypeParam {
 
 struct ValueParam {
   Token name;
-  TypeRef type_of;
+  TypeId type_of;
 };
 
 using TGenericParam = std::variant<TypeParam, ValueParam>;
 
 struct TGenericArg {
-  std::variant<TypeRef, std::unique_ptr<TVarInst>> data;
-  [[nodiscard]] std::string to_string(std::span<const TypeRef> types) const;
+  std::variant<TypeId, std::unique_ptr<TVarInst>> data;
+  // clang-format off
+  template <typename T>
+  bool is() { return std::holds_alternative<T>(data); }
+
+  template <typename T>
+  T &as() { return std::get<T>(data); }
+
+  template <typename T>
+  T *get_if() { return std::get_if<T>(&data); }
+  // clang-format on
+  [[nodiscard]] std::string to_string(std::span<const TypeRep> types) const;
 };
 
 std::string to_string(
     Token base, std::span<const TGenericArg> args,
-    std::span<const TypeRef> types
+    std::span<const TypeRep> types
 );
 
 struct TGenericInst {
   Token base_name;
   std::vector<TGenericArg> args;
-  [[nodiscard]] std::string to_string(std::span<const TypeRef> types) const;
+  [[nodiscard]] std::string to_string(std::span<const TypeRep> types) const;
 };
 } // namespace cinnabar
 
 //// need hashes and equality operator for TNamespace
 //// keeping strings as the key isn't enough because we can nest definitions
 // template <>
-// struct std::hash<cinnabar::TypeRef> {
-//   std::size_t operator()(const cinnabar::TypeRef &type) const {
+// struct std::hash<cinnabar::TypeRep> {
+//   std::size_t operator()(const cinnabar::TypeRep &type) const {
 //     // lazy
 //     return std::hash<std::string>{}(type.to_string());
 //   }
@@ -193,12 +203,12 @@ struct TGenericInst {
 
 namespace cinnabar {
 
-using ItemRef = std::variant<TypeRef, FunctionInst *, TVarInst *>;
+using ItemRef = std::variant<TypeId, FunctionInst *, TVarInst *>;
 
 struct TNamespace {
   // concrete types/funcs don't always have tokens, own the strings
   std::unordered_map<std::string, ItemRef> items;
-  size_t id;
+  int id;
   TNamespace *parent;
   TNamespace(size_t id, TNamespace *parent);
 };
@@ -209,11 +219,12 @@ struct FunctionInst {
   Token base_name;
   std::vector<TGenericArg> generic_args;
   std::vector<std::unique_ptr<TVarInst>> params;
-  TypeRef return_type = {None{}};
+  TypeId return_type = -1;
+  TypeId type;
 
   std::unique_ptr<TBlock> body;
 
-  std::string to_string(std::span<const TypeRef> types) const;
+  std::string to_string(std::span<const TypeRep> types) const;
 };
 
 struct EnumGen {};
@@ -224,10 +235,10 @@ struct EnumInst {
   std::unique_ptr<TNamespace> namesp;
 
   // name: {type, index}
-  std::unordered_map<std::string_view, std::pair<TypeRef, int>> variants;
+  std::unordered_map<std::string_view, std::pair<TypeId, int>> variants;
   std::unordered_map<std::string_view, FunctionInst *> methods;
 
-  std::string to_string(std::span<const TypeRef> types) const;
+  std::string to_string(std::span<const TypeRep> types) const;
 };
 
 struct StructGen {};
@@ -238,10 +249,10 @@ struct StructInst {
   std::unique_ptr<TNamespace> namesp;
 
   // name: {type, index}
-  std::unordered_map<std::string_view, std::pair<TypeRef, int>> fields;
+  std::unordered_map<std::string_view, std::pair<TypeId, int>> fields;
   std::unordered_map<std::string_view, FunctionInst *> methods;
 
-  std::string to_string(std::span<const TypeRef> types) const;
+  std::string to_string(std::span<const TypeRep> types) const;
 };
 
 // monostate because we need default value for node for TExpr construction
@@ -255,7 +266,7 @@ using TExprVariant = std::variant<
 struct TExpr {
   TExprVariant node;
 
-  [[nodiscard]] TypeRef type() const;
+  [[nodiscard]] TypeId type() const;
   [[nodiscard]] bool is_place_expr() const;
 
   TExpr();
@@ -271,20 +282,20 @@ struct TExpr {
 };
 
 struct TBinary {
-  TypeRef type = {None{}};
+  TypeId type = -1;
   BinaryOp op;
   TExpr left;
   TExpr right;
 };
 
 struct TBlock {
-  TypeRef type = {None{}};
+  TypeId type = -1;
   std::vector<TStmt> stmts;
   std::unique_ptr<TNamespace> namesp;
 };
 
 struct TDotRef {
-  TypeRef type = {None{}};
+  TypeId type = -1;
   FunctionInst *fun = nullptr; // for method
   int prop_idx = -1;           // for field or variant
   TExpr left;
@@ -292,14 +303,14 @@ struct TDotRef {
 };
 
 struct TFunCall {
-  TypeRef type = {None{}};
+  TypeId type = -1;
   FunctionInst *fun = nullptr; // for method
   TExpr callee;
   std::vector<TExpr> args;
 };
 
 struct TIf {
-  TypeRef type = {None{}};
+  TypeId type = -1;
   struct TBranch {
     // else branch will be a Literal true condition as the last block
     TExpr condition;
@@ -311,7 +322,7 @@ struct TIf {
 };
 
 struct TIndex {
-  TypeRef type = {None{}};
+  TypeId type = -1;
   TExpr callee;
   TExpr arg; // only handle one arg for now
 };
@@ -320,27 +331,27 @@ using LiteralVariant =
     std::variant<int32_t, int64_t, float, double, bool, char, std::string>;
 
 struct TLiteral {
-  TypeRef type = {None{}};
+  TypeId type = -1;
   LiteralVariant val;
 };
 
 struct TFunctionName {
-  TypeRef type = {None{}};
+  TypeId type = -1;
   FunctionInst *fun;
 };
 
 struct TTypeName {
-  TypeRef type = {None{}};
+  TypeId type = -1;
 };
 
 struct TVariable {
-  TypeRef type = {None{}};
+  TypeId type = -1;
   Token name;
   TVarInst *inst;
 };
 
 struct TUnary {
-  TypeRef type = {None{}};
+  TypeId type = -1;
   UnaryOp op;
   TExpr operand;
 };
@@ -362,7 +373,7 @@ struct TReturn {
 
 struct TVarInst {
   Token name;
-  TypeRef type = {None{}};
+  TypeId type = -1;
   std::optional<TExpr> initializer;
 };
 
@@ -402,7 +413,7 @@ struct TAST {
   std::vector<std::unique_ptr<TVarInst>> globals;
   std::vector<Item> items;
 
-  std::vector<TypeRef> types;
+  std::vector<TypeRep> types;
 
   std::unique_ptr<TNamespace> root_namesp;
   std::vector<TNamespace *> namespaces;

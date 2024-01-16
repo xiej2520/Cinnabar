@@ -23,7 +23,6 @@ fun main() i32 {
   let t = true != 2 <= 1
   let u = true != 1 >= 2
   let v = true == false || -1 < 1
-  //let w = (6 / ((x + 4) + 5)
   return 0
 }
 

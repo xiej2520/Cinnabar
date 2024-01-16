@@ -7,12 +7,14 @@ using std::vector;
 
 using enum Lexeme;
 
-const std::vector<std::string_view> default_primitives = {
-    "unit", "i8",  "i16", "i32",  "i64",  "u8",    "u16",   "u32",
-    "u64",  "f32", "f64", "char", "bool", "isize", "usize",
+const std::vector<std::string_view> builtin_names = {
+    "Unit", "i8",  "i16",  "i32",  "i64",   "u8",    "u16", "u32",   "u64",
+    "f32",  "f64", "char", "bool", "isize", "usize", "Ref", "Array", "Span",
 };
 
-[[nodiscard]] bool GenericSignature::is_concrete() const { return params.empty(); }
+[[nodiscard]] bool GenericSignature::is_concrete() const {
+  return params.empty();
+}
 
 GenericInst::GenericInst(Token base_name) : base_name(base_name) {}
 GenericInst::GenericInst(Token base_name, vector<GenericArg> args)
@@ -34,10 +36,15 @@ GenericInst::GenericInst(Token base_name, vector<GenericArg> args)
 [[nodiscard]] bool GenericInst::is_concrete() const { return args.empty(); }
 
 [[nodiscard]] std::string GenericArg::to_string() const {
-  return std::visit(overload{
-    [](const GenericInst &inst) { return inst.to_string(); },
-    [](const Literal &literal) { return cinnabar::to_string(literal.val); },
-  }, data);
+  return std::visit(
+      overload{
+          [](const GenericInst &inst) { return inst.to_string(); },
+          [](const Literal &literal) {
+            return cinnabar::to_string(literal.val);
+          },
+      },
+      data
+  );
 }
 
 [[nodiscard]] std::string GenericSignature::to_string() const {
@@ -55,13 +62,16 @@ GenericInst::GenericInst(Token base_name, vector<GenericArg> args)
 
 [[nodiscard]] std::string GenericParam::to_string() const {
   std::string res{name.str};
-  std::visit(overload{
-    [](TypeParamData) {},
-    [&](const ValueParamData &data) {
-      res += ',';
-      res += data.type.to_string();
-    },
-  }, param);
+  std::visit(
+      overload{
+          [](TypeParamData) {},
+          [&](const ValueParamData &data) {
+            res += ',';
+            res += data.type.to_string();
+          },
+      },
+      param
+  );
   return res;
 }
 
@@ -85,6 +95,7 @@ std::string Namespace::to_string(int cur) {
   for (auto &p : names) {
     // clang-format off
     std::visit(overload{
+      [&](BuiltinType) { type_names.push_back(p.first); },
       [&](StructDecl *) { type_names.push_back(p.first); },
       [&](EnumDecl *) { type_names.push_back(p.first); },
       [&](FunDecl *) { fun_names.push_back(p.first); },
@@ -123,7 +134,8 @@ Declaration::Declaration(DeclVariant decl) : decl(std::move(decl)) {}
 
 // declaration statements
 EnumDecl::EnumDecl(
-    GenericSignature name_params, vector<std::pair<Token, GenericInst>> variants,
+    GenericSignature name_params,
+    vector<std::pair<Token, GenericInst>> variants,
     vector<unique_ptr<FunDecl>> methods, unique_ptr<Namespace> namesp
 )
     : name_params(std::move(name_params)), variants(variants),
@@ -139,8 +151,8 @@ FunDecl::FunDecl(
 StructDecl::StructDecl(
     GenericSignature name_params, vector<std::pair<Token, GenericInst>> fields,
     vector<unique_ptr<FunDecl>> methods, unique_ptr<Namespace> namesp
-):
-    name_params(std::move(name_params)), fields(fields),
+)
+    : name_params(std::move(name_params)), fields(fields),
       methods(std::move(methods)), namesp(std::move(namesp)) {}
 
 VarDecl::VarDecl(
@@ -180,7 +192,8 @@ Unary::Unary(UnaryOp op, Expr operand) : op(op), operand(std::move(operand)) {}
 Expr::Expr(ExprVariant node) : node(std::move(node)) {}
 
 std::string FunDecl::s_expr(int cur, int ind) {
-  std::string res = fmt::format("{:{}}(Fun[{}]\n", "", cur, name_params.to_string());
+  std::string res =
+      fmt::format("{:{}}(Fun[{}]\n", "", cur, name_params.to_string());
   if (!body->namesp->names.empty()) {
     res += body->namesp->to_string(cur + ind);
   }

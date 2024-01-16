@@ -57,31 +57,52 @@ std::unique_ptr<TLiteral> TypeResolver::resolve(const Literal &literal) {
   auto res = std::make_unique_for_overwrite<TLiteral>();
   // clang-format off
   res->type = std::visit(overload{
-    [&](int32_t) { return TypeRef{PRIM_I32}; },
-    [&](int64_t) { return TypeRef{PRIM_I64}; },
-    [&](float)   { return TypeRef{PRIM_F32}; },
-    [&](double)  { return TypeRef{PRIM_F64}; },
-    [&](bool)    { return TypeRef{PRIM_BOOL}; },
-    [&](char)    { return TypeRef{PRIM_U8}; },
-    [&](const std::string &) {
-      std::vector<TGenericArg> args;
-      args.push_back(TGenericArg{TypeRef{PRIM_U8}});
-      auto str_span_type = get_type(TGenericInst{
-          Token::make_builtin("Span", Lexeme::IDENTIFIER), std::move(args)
-      });
-      return str_span_type;
-    }
+    [&](int32_t) { return builtin_types["i32"]; },
+    [&](int64_t) { return builtin_types["i64"]; },
+    [&](float)   { return builtin_types["f32"]; },
+    [&](double)  { return builtin_types["f64"]; },
+    [&](bool)    { return builtin_types["bool"]; },
+    [&](char)    { return builtin_types["u8"]; },
+    [&](const std::string &) { return builtin_types["Span[u8]"]; }
   }, literal.val);
   // clang-format on
   res->val = literal.val;
   return res;
 }
 
-TypeRef TypeResolver::get_type(TGenericInst concrete) {
+TypeId TypeResolver::get_type(TGenericInst concrete) {
   auto namesp = cur_ast_namesp;
   auto tnamesp = cur_tnamesp;
 
   auto base_str = concrete.base_name.str;
+  auto concrete_full_name =
+      cinnabar::to_string(concrete.base_name, concrete.args, types);
+
+  if (base_str == "Ref") {
+    if (!root_tnamesp->items.contains(concrete_full_name)) {
+      return std::get<TypeId>(
+          root_tnamesp->items[concrete_full_name] =
+              create_ref_type(std::move(concrete))
+      );
+    }
+    return std::get<TypeId>(root_tnamesp->items[concrete_full_name]);
+  } else if (base_str == "Array") {
+    if (!root_tnamesp->items.contains(concrete_full_name)) {
+      return std::get<TypeId>(
+          root_tnamesp->items[concrete_full_name] =
+              create_array_type(std::move(concrete))
+      );
+    }
+    return std::get<TypeId>(root_tnamesp->items[concrete_full_name]);
+  } else if (base_str == "Span") {
+    if (!root_tnamesp->items.contains(concrete_full_name)) {
+      return std::get<TypeId>(
+          root_tnamesp->items[concrete_full_name] =
+              create_span_type(std::move(concrete))
+      );
+    }
+    return std::get<TypeId>(root_tnamesp->items[concrete_full_name]);
+  }
 
   // clang-format off
   for (; namesp != nullptr; namesp = namesp->parent, tnamesp = tnamesp->parent) {
@@ -91,9 +112,11 @@ TypeRef TypeResolver::get_type(TGenericInst concrete) {
       //   tnamesp[base_str] = resolve(decl);
       // }
 
-      return std::get<TypeRef>(std::visit(overload{
+      return std::get<TypeId>(std::visit(overload{
+        [&](BuiltinType) -> ItemRef {
+          return builtin_types[base_str];
+        },
         [&](EnumDecl *decl) -> ItemRef {
-          auto concrete_full_name = to_string(concrete.base_name, concrete.args, types);
           if (!tnamesp->items.contains(concrete_full_name)) {
             return tnamesp->items[concrete_full_name] = create_enum_type(decl, std::move(concrete.args), tnamesp);
           }
@@ -101,7 +124,6 @@ TypeRef TypeResolver::get_type(TGenericInst concrete) {
         },
         [&](FunDecl *) -> ItemRef { error(fmt::format("Name {} is a function, not a type.", base_str)); },
         [&](StructDecl *decl) -> ItemRef {
-          auto concrete_full_name = to_string(concrete.base_name, concrete.args, types);
           if (!tnamesp->items.contains(concrete_full_name)) {
             return tnamesp->items[concrete_full_name] = create_struct_type(decl, std::move(concrete.args), tnamesp);
           }
@@ -128,7 +150,7 @@ FunctionInst *TypeResolver::get_function(TGenericInst concrete) {
         error(fmt::format("Name {} is not a function.", base_str));
       }
       auto concrete_full_name =
-          to_string(concrete.base_name, concrete.args, types);
+          cinnabar::to_string(concrete.base_name, concrete.args, types);
       if (!tnamesp->items.contains(concrete_full_name)) {
         return std::get<FunctionInst *>(
             tnamesp->items[concrete_full_name] = create_function(
@@ -166,8 +188,8 @@ ItemRef TypeResolver::get_item_ref(const std::string &name) {
   for (auto tnamesp = cur_tnamesp; tnamesp != nullptr;
        tnamesp = tnamesp->parent) {
     if (auto it = tnamesp->items.find(name); it != tnamesp->items.end()) {
-      if (past_function_namespace &&
-          std::holds_alternative<TVarInst *>(it->second)) {
+      if (past_function_namespaceT arInst&&
+          std::holds_alternative<V *>(it->second)) {
         error(fmt::format("Name {} refers to a nonlocal variable.", name));
       }
       return it->second;
@@ -179,21 +201,40 @@ ItemRef TypeResolver::get_item_ref(const std::string &name) {
   error(fmt::format("Named value {} not found.", name));
 }
 
-TypeRef TypeResolver::create_struct_type(
+TypeId TypeResolver::get_function_typeid(const FunctionType &ft) {
+  std::string key{};
+  for (auto arg_type : ft.arg_types) {
+    key += arg_type;
+    key += ' ';
+  }
+  key += to_string(ft.return_type);
+  if (!function_types.contains(key)) {
+    types.push_back(TypeRep{ft});
+    return function_types[key] = types.size() - 1;
+  }
+  return function_types[key];
+}
+
+TypeId TypeResolver::create_struct_type(
     StructDecl *decl, std::vector<TGenericArg> args, TNamespace *parent_tnamesp
 ) {
-  size_t struct_index = items.size();
+  int struct_item_index = items.size();
   items.push_back(Item{std::make_unique<StructInst>()});
   auto struct_inst = std::get<std::unique_ptr<StructInst>>(items.back()).get();
+  
+  TypeId struct_type_index = types.size();
+  types.push_back(TypeRep{Path{struct_inst, parent_tnamesp->id, struct_item_index}});
   struct_inst->generic_args = std::move(args);
+  struct_inst->namesp = make_tnamespace(parent_tnamesp);
 
-  currently_creating.insert(struct_index);
+  currently_creating.insert(struct_type_index);
 
   auto p = push_namespace(decl->namesp.get(), struct_inst->namesp.get());
 
-  auto concrete_full_name = to_string(decl->name_params.base_name, args, types);
-  auto res = TypeRef{Path{struct_inst, parent_tnamesp->id, struct_index}};
-  parent_tnamesp->items[concrete_full_name] = res;
+  auto concrete_full_name =
+      cinnabar::to_string(decl->name_params.base_name, args, types);
+  parent_tnamesp->items[concrete_full_name] = struct_type_index;
+  struct_inst->namesp->items[concrete_full_name] = struct_type_index;
 
   if (args.size() != decl->name_params.params.size()) {
     error(fmt::format(
@@ -205,7 +246,7 @@ TypeRef TypeResolver::create_struct_type(
     // clang-format off
     struct_inst->namesp->items[std::string{decl->name_params.params[i].name.str}] =
       std::visit(overload{
-        [&](TypeRef t) { return ItemRef{t}; },
+        [&](TypeId t) { return ItemRef{t}; },
         [&](const std::unique_ptr<TVarInst> &v) { return ItemRef{v.get()}; }
       }, args[i].data);
     // clang-format on
@@ -213,8 +254,8 @@ TypeRef TypeResolver::create_struct_type(
 
   for (size_t i = 0; i < decl->fields.size(); i++) {
     auto &[name, gen_type] = decl->fields[i];
-    auto field_typeref = get_type(resolve(gen_type));
-    if (Path *path = field_typeref.get_if<Path>()) {
+    auto field_typeid = get_type(resolve(gen_type));
+    if (Path *path = types[field_typeid].get_if<Path>()) {
       if (currently_creating.contains(path->item_index)) {
         error(fmt::format(
             "Cycle detected while instantiating types at {}.",
@@ -222,36 +263,41 @@ TypeRef TypeResolver::create_struct_type(
         ));
       }
     }
-    struct_inst->fields[name.str] = {field_typeref, i};
+    struct_inst->fields[name.str] = {field_typeid, i};
   }
 
   // add methods? later
-  currently_creating.erase(struct_index);
-  type_topo_order.push_back(struct_index);
-  return res;
+  currently_creating.erase(struct_type_index);
+  type_topo_order.push_back(struct_type_index);
+  return struct_type_index;
 }
 
-TypeRef TypeResolver::create_enum_type(
+TypeId TypeResolver::create_enum_type(
     EnumDecl *decl, std::vector<TGenericArg> args, TNamespace *parent_tnamesp
 ) {
-  size_t enum_index = items.size();
+  int enum_item_index = items.size();
   items.push_back(Item{std::make_unique<EnumInst>()});
   auto enum_inst = std::get<std::unique_ptr<EnumInst>>(items.back()).get();
-  enum_inst->generic_args = std::move(args);
 
-  currently_creating.insert(enum_index);
+  TypeId enum_type_index = types.size();
+  types.push_back(TypeRep{Path{enum_inst, parent_tnamesp->id, enum_item_index}});
+  enum_inst->generic_args = std::move(args);
+  enum_inst->namesp = make_tnamespace(parent_tnamesp);
+
+  currently_creating.insert(enum_type_index);
 
   auto p = push_namespace(decl->namesp.get(), enum_inst->namesp.get());
 
-  auto concrete_full_name = to_string(decl->name_params.base_name, args, types);
-  auto res = TypeRef{Path{enum_inst, parent_tnamesp->id, enum_index}};
-  parent_tnamesp->items[concrete_full_name] = res;
+  auto concrete_full_name =
+      cinnabar::to_string(decl->name_params.base_name, args, types);
+  parent_tnamesp->items[concrete_full_name] = enum_type_index;
+  enum_inst->namesp->items[concrete_full_name] = enum_type_index;
 
   for (size_t i = 0; i < args.size(); i++) {
     // clang-format off
     enum_inst->namesp->items[std::string{decl->name_params.params[i].name.str}] =
       std::visit(overload{
-        [&](TypeRef t) { return ItemRef{t}; },
+        [&](TypeId t) { return ItemRef{t}; },
         [&](const std::unique_ptr<TVarInst> &v) { return ItemRef{v.get()}; }
       }, args[i].data);
     // clang-format on
@@ -259,8 +305,8 @@ TypeRef TypeResolver::create_enum_type(
 
   for (size_t i = 0; i < decl->variants.size(); i++) {
     auto &[name, gen_type] = decl->variants[i];
-    auto variant_typeref = get_type(resolve(gen_type));
-    if (Path *path = variant_typeref.get_if<Path>()) {
+    auto variant_typeid = get_type(resolve(gen_type));
+    if (Path *path = types[variant_typeid].get_if<Path>()) {
       if (currently_creating.contains(path->item_index)) {
         error(fmt::format(
             "Cycle detected while instantiating types at {}.",
@@ -268,13 +314,65 @@ TypeRef TypeResolver::create_enum_type(
         ));
       }
     }
-    enum_inst->variants[name.str] = {variant_typeref, i};
+    enum_inst->variants[name.str] = {variant_typeid, i};
   }
 
   // add methods? later
-  currently_creating.erase(enum_index);
-  type_topo_order.push_back(enum_index);
-  return res;
+  currently_creating.erase(enum_type_index);
+  type_topo_order.push_back(enum_type_index);
+  return enum_type_index;
+}
+
+TypeId TypeResolver::create_ref_type(TGenericInst concrete) {
+  if (concrete.args.size() != 1 || !concrete.args[0].is<TypeId>()) {
+    error(fmt::format(
+        "Expected 1 type arg for Ref[_], got {}", concrete.to_string(types)
+    ));
+  }
+  TypeId concrete_id = concrete.args[0].as<TypeId>();
+  types.push_back(TypeRep{Ref{true, concrete_id}});
+  return types.size() - 1;
+}
+
+TypeId TypeResolver::create_array_type(TGenericInst concrete) {
+  if (concrete.args.size() != 2 || !concrete.args[0].is<TypeId>() ||
+      !concrete.args[1].is<std::unique_ptr<TVarInst>>()) {
+    error(fmt::format(
+        "Expected 1 type arg and 1 size arg for Array[_, _], got {}",
+        concrete.to_string(types)
+    ));
+  }
+  auto var_inst_ptr = concrete.args[1].as<std::unique_ptr<TVarInst>>().get();
+  size_t size;
+  if (!var_inst_ptr->initializer.has_value()) {
+    error("Array[_, _] size initializer is empty");
+  }
+  if (auto *literal_ptr =
+          var_inst_ptr->initializer.value().get_node_if<TLiteral>()) {
+    if (literal_ptr->type != builtin_types["i32"]) {
+      error(fmt::format(
+          "Array[_, _] size type is {}, not i32", to_string(literal_ptr->type)
+      ));
+    }
+    size = std::get<int32_t>(literal_ptr->val);
+  } else {
+    error("Array[_, _] size initializer is not a literal");
+  }
+
+  TypeId concrete_id = concrete.args[0].as<TypeId>();
+  types.push_back(TypeRep{Array{concrete_id, size}});
+  return types.size() - 1;
+}
+
+TypeId TypeResolver::create_span_type(TGenericInst concrete) {
+  if (concrete.args.size() != 1 || !concrete.args[0].is<TypeId>()) {
+    error(fmt::format(
+        "Expected 1 type arg for Span[_], got {}", concrete.to_string(types)
+    ));
+  }
+  TypeId concrete_id = concrete.args[0].as<TypeId>();
+  types.push_back(TypeRep{Span{true, concrete_id}});
+  return types.size() - 1;
 }
 
 FunctionInst *TypeResolver::create_function(
@@ -284,9 +382,11 @@ FunctionInst *TypeResolver::create_function(
   items.push_back(Item{std::make_unique<FunctionInst>()});
   auto fun_inst = std::get<std::unique_ptr<FunctionInst>>(items.back()).get();
 
-  auto concrete_full_name = to_string(decl->name_params.base_name, args, types);
+  auto concrete_full_name =
+      cinnabar::to_string(decl->name_params.base_name, args, types);
 
   auto block_namesp = make_tnamespace(parent_tnamesp);
+  // add function name to allow recursion
   parent_tnamesp->items[concrete_full_name] = fun_inst;
   block_namesp->items[concrete_full_name] = fun_inst;
 
@@ -301,7 +401,7 @@ FunctionInst *TypeResolver::create_function(
     // clang-format off
     block_namesp->items[std::string{decl->name_params.params[i].name.str}] =
       std::visit(overload{
-        [&](TypeRef t) { return ItemRef{t}; },
+        [&](TypeId t) { return ItemRef{t}; },
         [&](const std::unique_ptr<TVarInst> &v) { return ItemRef{v.get()}; }
       }, args[i].data);
     // clang-format on
@@ -309,11 +409,15 @@ FunctionInst *TypeResolver::create_function(
 
   auto p = push_namespace(decl->body->namesp.get(), block_namesp.get());
 
+  FunctionType fun_type{};
   for (auto &param : decl->params) {
     fun_inst->params.push_back(resolve(*param));
+    fun_type.arg_types.push_back(fun_inst->params.back()->type);
   }
 
   fun_inst->return_type = get_type(resolve(decl->return_type));
+  fun_type.return_type = fun_inst->return_type;
+  fun_inst->type = get_function_typeid(fun_type);
 
   auto f = push_fun(fun_inst, block_namesp.get());
   fun_inst->body = resolve(*decl->body, std::move(block_namesp));
@@ -349,28 +453,28 @@ std::unordered_set<Primitive> negatable = {PRIM_I8,  PRIM_I16,  PRIM_I32,
                                            PRIM_I64, PRIM_I128, PRIM_ISIZE,
                                            PRIM_F32, PRIM_F64};
 
-TypeRef TypeResolver::find_unary_op(UnaryOp op, const TExpr &operand) {
-  auto operand_type = operand.type();
+TypeId TypeResolver::find_unary_op(UnaryOp op, const TExpr &operand) {
+  auto operand_typerep = types[operand.type()];
   switch (op) {
   case UnaryOp::PLUS:
   case UnaryOp::NEG:
-    if (!operand_type.is<Primitive>() ||
-        !negatable.contains(operand_type.as<Primitive>())) {
+    if (!operand_typerep.is<Primitive>() ||
+        !negatable.contains(operand_typerep.as<Primitive>())) {
       error(fmt::format(
-          "Invalid unary operation: {} {}\n", to_string(op),
-          operand_type.to_string(types)
+          "Invalid unary operation: {} {}\n", cinnabar::to_string(op),
+          operand_typerep.to_string(types)
       ));
     }
-    return operand_type;
+    return operand.type();
   case UnaryOp::NOT:
-    if (!operand_type.is<Primitive>() ||
-        operand_type.as<Primitive>() != PRIM_BOOL) {
+    if (!operand_typerep.is<Primitive>() ||
+        operand_typerep.as<Primitive>() != PRIM_BOOL) {
       error(fmt::format(
-          "Invalid unary operation: {} {}\n", to_string(op),
-          operand_type.to_string(types)
+          "Invalid unary operation: {} {}\n", cinnabar::to_string(op),
+          operand_typerep.to_string(types)
       ));
     }
-    return operand_type;
+    return operand.type();
   case UnaryOp::REF: {
     if (!operand.is_place_expr()) {
       error("Operand of __ref is not a place expression.");
@@ -378,7 +482,7 @@ TypeRef TypeResolver::find_unary_op(UnaryOp op, const TExpr &operand) {
     // initializer_list creates an array and copies it, must manually create
     // and move into args vector instead
     std::vector<TGenericArg> arg;
-    arg.push_back(TGenericArg{std::move(operand_type)});
+    arg.push_back(TGenericArg{operand.type()});
     return get_type(TGenericInst{
         Token::make_builtin("Ref", Lexeme::IDENTIFIER), std::move(arg)
     });
@@ -388,46 +492,48 @@ TypeRef TypeResolver::find_unary_op(UnaryOp op, const TExpr &operand) {
       error("Operand of __varref is not a place expression.");
     }
     std::vector<TGenericArg> arg;
-    arg.push_back(TGenericArg{std::move(operand_type)});
+    arg.push_back(TGenericArg{operand.type()});
     return get_type(TGenericInst{
         Token::make_builtin("VarRef", Lexeme::IDENTIFIER), std::move(arg)
     });
   }
   case UnaryOp::DEREF: {
-    if (!operand_type.is<Ref>()) {
+    if (!operand_typerep.is<Ref>()) {
       error(fmt::format(
-          "Tried to deref a non-Ref type: {}", operand_type.to_string(types)
+          "Tried to deref a non-Ref type: {}", operand_typerep.to_string(types)
       ));
     }
-    return types[operand_type.as<Ref>().arg];
+    return operand_typerep.as<Ref>().arg;
   }
   default:
     error(fmt::format(
-        "Invalid unary operation: {} {}\n", to_string(op),
-        operand_type.to_string(types)
+        "Invalid unary operation: {} {}\n", cinnabar::to_string(op),
+        operand_typerep.to_string(types)
     ));
   }
 }
 
-TypeRef
-TypeResolver::find_binary_op(BinaryOp op, TypeRef lhs_type, TypeRef rhs_type) {
+TypeId
+TypeResolver::find_binary_op(BinaryOp op, TypeId lhs_type, TypeId rhs_type) {
   switch (op) {
   case BinaryOp::EQ:
     if (lhs_type == rhs_type) {
-      return TypeRef{PRIM_BOOL};
+      return builtin_types["bool"];
     }
     break;
   case BinaryOp::NEQ:
     if (lhs_type == rhs_type) {
-      return TypeRef{PRIM_BOOL};
+      return builtin_types["bool"];
     }
     break;
   default:;
   }
 
-  if (lhs_type.is<Primitive>() && rhs_type.is<Primitive>()) {
-    auto lhs_prim = lhs_type.as<Primitive>();
-    auto rhs_prim = rhs_type.as<Primitive>();
+  auto lhs_typerep = types[lhs_type];
+  auto rhs_typerep = types[rhs_type];
+  if (lhs_typerep.is<Primitive>() && rhs_typerep.is<Primitive>()) {
+    auto lhs_prim = lhs_typerep.as<Primitive>();
+    auto rhs_prim = rhs_typerep.as<Primitive>();
     if (lhs_type != rhs_type) {
       error(lhs_type, rhs_type);
     }
@@ -450,7 +556,7 @@ TypeResolver::find_binary_op(BinaryOp op, TypeRef lhs_type, TypeRef rhs_type) {
       case BinaryOp::GT:
       case BinaryOp::GTE:
       case BinaryOp::LTE:
-        return TypeRef{PRIM_BOOL};
+        return builtin_types["bool"];
       default:;
       }
     } else if (lhs_prim == PRIM_BOOL && rhs_prim == PRIM_BOOL) {
@@ -458,18 +564,18 @@ TypeResolver::find_binary_op(BinaryOp op, TypeRef lhs_type, TypeRef rhs_type) {
       case BinaryOp::AND:
       case BinaryOp::OR:
       case BinaryOp::XOR:
-        return TypeRef{PRIM_BOOL};
+        return builtin_types["bool"];
       default:;
       }
     }
   }
   error(fmt::format(
-      "Invalid binary operation: {} {} {}\n", to_string(op),
-      lhs_type.to_string(types), rhs_type.to_string(types)
+      "Invalid binary operation: {} {} {}\n", cinnabar::to_string(op),
+      to_string(lhs_type), to_string(rhs_type)
   ));
 }
-
 // clang-format off
+
 std::optional<TStmt> TypeResolver::resolve(Stmt &stmt) {
   return std::visit(overload{
     [&](std::monostate) -> std::optional<TStmt> { return std::nullopt; },
@@ -490,9 +596,9 @@ std::optional<TStmt> TypeResolver::resolve(Stmt &stmt) {
       if (res->lhs.type() != res->rhs.type()) {
         error(fmt::format("Left side {} has type {}, does not match right side {} type {}.",
             stmt->lhs.s_expr(0, 2),
-            res->lhs.type().to_string(types),
+            to_string(res->lhs.type()),
             stmt->rhs.s_expr(0, 2),
-            res->rhs.type().to_string(types)
+            to_string(res->rhs.type())
         ));
       }
       return TStmt{std::move(res)};
@@ -519,9 +625,9 @@ std::optional<TStmt> TypeResolver::resolve(Stmt &stmt) {
         res->value = std::nullopt;
       }
       // expect no return expr
-      if (cur_fun->return_type == TypeRef{Unit{}}) {
-        if (res->value.has_value() && res->value.value().type() != TypeRef{Unit{}}) {
-          error(TypeRef{Unit{}}, res->value.value().type());
+      if (cur_fun->return_type == builtin_types["Unit"]) {
+        if (res->value.has_value() && res->value.value().type() != builtin_types["Unit"]) {
+          error(builtin_types["Unit"], res->value.value().type());
         }
       }
       // expect return expr matching function declaration
@@ -535,19 +641,17 @@ std::optional<TStmt> TypeResolver::resolve(Stmt &stmt) {
       auto res = std::make_unique<TPrint>();
       res->newline = stmt->newline;
       std::vector<TGenericArg> args;
-      args.push_back(TGenericArg{TypeRef{PRIM_U8}});
+      args.push_back(TGenericArg{builtin_types["u8"]});
       auto str_span_type = get_type(TGenericInst{
           Token::make_builtin("Span", Lexeme::IDENTIFIER), std::move(args)
       });
+
       for (auto &expr : stmt->args) {
         res->args.push_back(resolve(expr));
-        auto arg_typeref = res->args.back().type();
-        if (!arg_typeref.is<Primitive>() &&
-            arg_typeref != str_span_type) {
-          error(fmt::format(
-              "Unexpected type id in print: {}",
-              arg_typeref.to_string(types)
-          ));
+        auto arg_type = res->args.back().type();
+        auto arg_typerep = types[arg_type];
+        if (!arg_typerep.is<Primitive>() && arg_type != builtin_types["Span[u8]"]) {
+          error(fmt::format("Unexpected type id in print: {}", to_string(arg_type)));
         }
       }
       if (res->args.empty() && !res->newline) {
@@ -592,8 +696,8 @@ std::optional<TStmt> TypeResolver::resolve(Stmt &stmt) {
         else {
           // more than 1 arg, first arg isn't Span[u8]
           error(fmt::format(
-            "__print with more than 1 argument must have Span[char] as first argument, found {}",
-            res->args.front().type().to_string(types)));
+            "__print with more than 1 argument must have Span[u8] as first argument, found {}",
+            to_string(res->args.front().type())));
         }
       }
       
@@ -639,17 +743,17 @@ std::unique_ptr<TVarInst> TypeResolver::resolve(VarDecl &decl) {
   }
   else {
     res->initializer = std::nullopt;
-    res->type = TypeRef{None{}};
+    res->type = -1;
   }
   if (decl.type_specifier.has_value()) {
     auto specifier_type = get_type(resolve(decl.type_specifier.value()));
     if (res->initializer.has_value() && res->type != specifier_type) {
         error(fmt::format("Variable {} has declared type {}, does not match initializer type {}",
-            res->name.str, specifier_type.to_string(types), res->type.to_string(types)));
+            res->name.str, to_string(specifier_type), to_string(res->type)));
     }
     res->type = specifier_type;
   }
-  if (res->type == TypeRef{None{}}) {
+  if (res->type == -1) {
     error(fmt::format("Variable {} does not have a declared type or initializer"
         " (currently do not support type inference).", res->name.str));
   }
@@ -676,34 +780,36 @@ TExpr TypeResolver::resolve(Expr &expr) {
       res->name = expr->name;
 
       auto left_type = res->left.type();
-      if (Path *p = left_type.get_if<Path>()) {
+      if (Path *p = types[left_type].get_if<Path>()) {
         if (EnumInst **pe = p->get_if<EnumInst *>()) {
           EnumInst *inst = *pe;
           if (auto it = inst->variants.find(res->name.str); it != inst->variants.end()) {
             res->prop_idx = it->second.second;
             res->type = it->second.first;
           }
-          if (auto it = inst->methods.find(res->name.str); it != inst->methods.end()) {
+          else if (auto it = inst->methods.find(res->name.str); it != inst->methods.end()) {
             // todo: fix later, give FunctionInst a type
-            res->type = TypeRef{None{}};
+            res->type = -1;
+          } else {
+            error(fmt::format("Name {} in dot ref not found.", expr->name.str));
           }
-          error(fmt::format("Name {} in dot ref not found.", expr->name.str));
         } else if (StructInst **se = p->get_if<StructInst *>()) {
           StructInst *inst = *se;
           if (auto it = inst->fields.find(res->name.str); it != inst->fields.end()) {
             res->prop_idx = it->second.second;
             res->type = it->second.first;
           }
-          if (auto it = inst->methods.find(res->name.str); it != inst->methods.end()) {
+          else if (auto it = inst->methods.find(res->name.str); it != inst->methods.end()) {
             // todo: fix later, give FunctionInst a type
-            res->type = TypeRef{None{}};
+            res->type = -1;
+          } else {
+            error(fmt::format("Name {} in dot ref not found.", expr->name.str));
           }
-          error(fmt::format("Name {} in dot ref not found.", expr->name.str));
         } else {
           error(fmt::format("Unexpected dot ref on {} path", p->to_string(types)));
         }
       } else {
-        error(fmt::format("Unexpected dot ref on {} type", left_type.to_string(types)));
+        error(fmt::format("Unexpected dot ref on {} type", to_string(left_type)));
       }
       
       return TExpr{std::move(res)};
@@ -712,7 +818,7 @@ TExpr TypeResolver::resolve(Expr &expr) {
       auto res = std::make_unique<TFunCall>();
       res->callee = resolve(expr->callee);
 
-      if (!res->callee.type().is<FunctionType>()) {
+      if (!types[res->callee.type()].is<FunctionType>()) {
         error("Type of callee was not a function.");
       }
 
@@ -755,20 +861,20 @@ TExpr TypeResolver::resolve(Expr &expr) {
         auto &tbranch = *res->branches.back();
 
         tbranch.condition = resolve(branch->condition);
-        if (tbranch.condition.type().is<Primitive>() || tbranch.condition.type().as<Primitive>() != PRIM_BOOL) {
-          error(TypeRef{PRIM_BOOL}, tbranch.condition.type());
+        if (!types[tbranch.condition.type()].is<Primitive>() || types[tbranch.condition.type()].as<Primitive>() != PRIM_BOOL) {
+          error(builtin_types["bool"], tbranch.condition.type());
         }
         tbranch.block = resolve(*branch->block);
       }
 
       if (!res->has_else()) {
-        res->type = TypeRef{Unit{}};
+        res->type = builtin_types["Unit"];
       }
       else {
         res->type = res->branches.front()->block->type;
         for (size_t i = 1; i < res->branches.size(); i++) {
           if (res->type != res->branches[i]->block->type) {
-            res->type = TypeRef{Unit{}};
+            res->type = builtin_types["Unit"];
             break;
           }
         }
@@ -780,7 +886,7 @@ TExpr TypeResolver::resolve(Expr &expr) {
       if (NamedValue *named_val = expr->callee.get_node_if<NamedValue>()) {
         auto item = get_item_ref(std::string{named_val->name.str});
 
-        if (TypeRef *tr = std::get_if<TypeRef>(&item)) {
+        if (TypeId *t = std::get_if<TypeId>(&item)) {
           auto tgeneric_inst = index_to_tgeneric_inst(*expr);
 
           return TExpr{std::make_unique<TTypeName>(get_type(std::move(tgeneric_inst)))};
@@ -789,7 +895,7 @@ TExpr TypeResolver::resolve(Expr &expr) {
           auto tgeneric_inst = index_to_tgeneric_inst(*expr);
           auto fun_inst = get_function(std::move(tgeneric_inst));
 
-          return TExpr{std::make_unique<TFunctionName>(TypeRef{None{}}, fun_inst)};
+          return TExpr{std::make_unique<TFunctionName>(fun_inst->type, fun_inst)};
 
         }
       }
@@ -802,13 +908,13 @@ TExpr TypeResolver::resolve(Expr &expr) {
       res->callee = resolve(expr->callee);
       res->arg = resolve(expr->args[0]);
 
-      if (Array *array_type = res->callee.type().get_if<Array>()) {
-        res->type = types[array_type->arg];
-      } else if (Span *span_type = res->callee.type().get_if<Span>()) {
-        res->type = types[span_type->arg];
+      if (Array *array_type = types[res->callee.type()].get_if<Array>()) {
+        res->type = array_type->arg;
+      } else if (Span *span_type = types[res->callee.type()].get_if<Span>()) {
+        res->type = span_type->arg;
       } else {
           error(fmt::format("Unsupported indexing operation on type {} with operand type {}",
-              res->callee.type().to_string(types), res->arg.type().to_string(types)));
+              to_string(res->callee.type()), to_string(res->arg.type())));
       }
 
       return TExpr{std::move(res)};
@@ -834,12 +940,12 @@ TExpr TypeResolver::resolve(Expr &expr) {
 
       auto item = get_item_ref(std::string{expr->name.str});
       return std::visit(overload {
-        [&](const TypeRef &type) -> TExpr {
+        [&](const TypeId &type) -> TExpr {
           return TExpr{std::make_unique<TTypeName>(type)};
         },
         [&](FunctionInst *fun) -> TExpr {
           auto res = std::make_unique_for_overwrite<TFunctionName>();
-          res->type = TypeRef{None{}};
+          res->type = fun->type;
           res->fun = fun;
           return TExpr{std::move(res)};
         },
@@ -875,7 +981,7 @@ TypeResolver::resolve(Block &block, std::unique_ptr<TNamespace> tnamesp) {
   if (!res->stmts.empty() && res->stmts.back().is<TExpr>()) {
     res->type = res->stmts.back().as<TExpr>().type();
   } else {
-    res->type = TypeRef{Unit{}};
+    res->type = builtin_types["Unit"];
   }
   return res;
 }
@@ -899,23 +1005,22 @@ TAST TypeResolver::resolve() {
   TAST tast{};
 
   std::vector<std::unique_ptr<TVarInst>> globals;
-  
-  for (Primitive p : primitive_types) {
-    types.push_back(TypeRef{p});
-    root_tnamesp->items[name(p)] = TypeRef{p};
+
+  builtin_types["Unit"] = 0;
+  types.push_back(TypeRep{Unit{}});
+
+  for (auto p : primitive_types) {
+    root_tnamesp->items[name(p)] = static_cast<TypeId>(types.size());
+    builtin_types[name(p)] = types.size();
+    types.push_back(TypeRep{p});
   }
+  std::vector<TGenericArg> u8_arg;
+  u8_arg.push_back(TGenericArg{builtin_types["u8"]});
+  builtin_types["Span[u8]"] = create_span_type(TGenericInst{
+      Token::make_builtin("Span", Lexeme::IDENTIFIER), std::move(u8_arg)
+  });
 
-  // for (const auto &name : default_primitives) {
-  //   primitive_map[name] = add_type(
-  //       GenericInst{name}, std::get<Primitive
-  //       *>(ast.globals->get_name(name)), root_tnamesp
-  //   );
-  // }
-  // for (auto name : numeric_primitive_names) {
-  //   numeric_primitive_ids.insert(primitive_map[name]);
-  // }
-
-  for (Declaration &decl : ast.decls) {
+  for (auto &decl : ast.decls) {
     auto res = resolve(decl);
     if (res.has_value()) {
       globals.push_back(std::move(res.value()));
@@ -930,15 +1035,19 @@ TAST TypeResolver::resolve() {
   return tast;
 }
 
+[[nodiscard]] std::string TypeResolver::to_string(TypeId id) const {
+  return types[id].to_string(types);
+}
+
 [[noreturn]] void TypeResolver::error(std::string_view message) {
   fmt::print(stderr, "Type Resolution Error: {}\n", message);
   abort();
 }
 
-[[noreturn]] void TypeResolver::error(TypeRef expected, TypeRef found) {
+[[noreturn]] void TypeResolver::error(TypeId expected, TypeId found) {
   error(fmt::format(
-      "Expected type {}, found type {}.", expected.to_string(types),
-      found.to_string(types)
+      "Expected type {}, found type {}.", types[expected].to_string(types),
+      types[found].to_string(types)
   ));
 }
 

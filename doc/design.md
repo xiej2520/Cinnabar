@@ -37,3 +37,5 @@ Types are:
 * Generic - generic type parameter - not necessary in TAST?
 * Path - to user defined type
   * Adt: algebraic data type, structs and enums
+
+* Use isize by default?

@@ -73,6 +73,7 @@ int main(int argc, char **argv) {
       std::system(fmt::format("clang-format -i {}", args.c_out).c_str());
     }
     std::system(fmt::format("cc {} -o {}", args.c_out, args.out).c_str());
+    fmt::print(stderr, "\n--------\n");
     
     enum Status : int {
       Ok,

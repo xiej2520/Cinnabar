@@ -3,7 +3,7 @@
 namespace cinnabar {
 
 // clang-format off
-std::string Path::to_string(std::span<const TypeRef> types) const {
+std::string Path::to_string(std::span<const TypeRep> types) const {
   return std::visit(overload{
     [](EnumGen *) { return std::string{}; },
     [](StructGen *) { return std::string{}; },
@@ -44,27 +44,27 @@ std::vector<Primitive> primitive_types = {
 // clang-format on
 
 // clang-format off
-//TypeRef TypeRef::clone() const {
+//TypeRep TypeRep::clone() const {
 //  return std::visit(overload{
-//    [](None) { return TypeRef{None{}}; },
-//    [](Unit) { return TypeRef{Unit{}}; },
-//    [](Primitive p) { return TypeRef{p}; },
+//    [](None) { return TypeRep{None{}}; },
+//    [](Unit) { return TypeRep{Unit{}}; },
+//    [](Primitive p) { return TypeRep{p}; },
 //    [](const FunctionType &f) {
-//      std::vector<TypeRef> arg_types{};
+//      std::vector<TypeRep> arg_types{};
 //      arg_types.reserve(f.arg_types.size());
 //      for (const auto &tr : f.arg_types) {
 //        arg_types.push_back(tr.clone());
 //      }
-//      return TypeRef{FunctionType{std::move(arg_types), std::make_unique<TypeRef>(f.return_type->clone())}};
+//      return TypeRep{FunctionType{std::move(arg_types), std::make_unique<TypeRep>(f.return_type->clone())}};
 //    },
-//    [](const Ref &r) { return TypeRef{Ref{r.is_mut, std::make_unique<TypeRef>(r.arg->clone())}}; },
-//    [](const Array &a) { return TypeRef{Array{std::make_unique<TypeRef>(a.arg->clone()), a.size}}; },
-//    [](const Span &s) { return TypeRef{Span{s.is_mut, std::make_unique<TypeRef>(s.arg->clone())}}; },
-//    [](Path p) { return TypeRef{p}; },
+//    [](const Ref &r) { return TypeRep{Ref{r.is_mut, std::make_unique<TypeRep>(r.arg->clone())}}; },
+//    [](const Array &a) { return TypeRep{Array{std::make_unique<TypeRep>(a.arg->clone()), a.size}}; },
+//    [](const Span &s) { return TypeRep{Span{s.is_mut, std::make_unique<TypeRep>(s.arg->clone())}}; },
+//    [](Path p) { return TypeRep{p}; },
 //  }, data);
 //}
 
-std::string TypeRef::to_string(std::span<const TypeRef> types) const {
+std::string TypeRep::to_string(std::span<const TypeRep> types) const {
   return std::visit(overload{
     [](None) { throw "Called to_string() on None type"; return std::string{}; },
     [](Unit) { return std::string{"()"}; },
@@ -97,7 +97,7 @@ std::string TypeRef::to_string(std::span<const TypeRef> types) const {
   }, data);
 }
 
-bool TypeRef::operator==(const TypeRef &other) const {
+bool TypeRep::operator==(const TypeRep &other) const {
   if (data.index() != other.data.index()) {
     return false;
   }
@@ -131,7 +131,7 @@ bool TypeRef::operator==(const TypeRef &other) const {
 
 std::string to_string(
     Token base, std::span<const TGenericArg> args,
-    std::span<const TypeRef> types
+    std::span<const TypeRep> types
 ) {
   std::string res{base.str};
   if (!args.empty()) {
@@ -145,10 +145,10 @@ std::string to_string(
   return res;
 }
 
-std::string TGenericArg::to_string(std::span<const TypeRef> types) const {
+std::string TGenericArg::to_string(std::span<const TypeRep> types) const {
   return std::visit(
       overload{
-          [&](const TypeRef &t) { return t.to_string(types); },
+          [&](const TypeId &t) { return types[t].to_string(types); },
           [&](const std::unique_ptr<TVarInst> &v) {
             return cinnabar::to_string(
                 v->initializer.value().as<std::unique_ptr<TLiteral>>()->val
@@ -159,20 +159,20 @@ std::string TGenericArg::to_string(std::span<const TypeRef> types) const {
   );
 }
 
-[[nodiscard]] std::string TGenericInst::to_string(std::span<const TypeRef> types
+[[nodiscard]] std::string TGenericInst::to_string(std::span<const TypeRep> types
 ) const {
   return cinnabar::to_string(base_name, args, types);
 }
 
-std::string FunctionInst::to_string(std::span<const TypeRef> types) const {
+std::string FunctionInst::to_string(std::span<const TypeRep> types) const {
   return cinnabar::to_string(base_name, generic_args, types);
 }
 
-std::string EnumInst::to_string(std::span<const TypeRef> types) const {
+std::string EnumInst::to_string(std::span<const TypeRep> types) const {
   return cinnabar::to_string(base_name, generic_args, types);
 }
 
-std::string StructInst::to_string(std::span<const TypeRef> types) const {
+std::string StructInst::to_string(std::span<const TypeRep> types) const {
   return cinnabar::to_string(base_name, generic_args, types);
 }
 
@@ -191,10 +191,10 @@ bool TIf::has_else() {
   return false;
 }
 
-TypeRef TExpr::type() const {
+TypeId TExpr::type() const {
   // clang-format off
   return std::visit(overload{
-    [&](std::monostate) { return TypeRef{None{}}; },
+    [&](std::monostate) { return -1; },
     [&](const std::unique_ptr<TBinary> &expr) { return expr->type; },
     [&](const std::unique_ptr<TBlock> &expr) { return expr->type; },
     [&](const std::unique_ptr<TDotRef> &expr) { return expr->type; },
