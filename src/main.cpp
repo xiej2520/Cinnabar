@@ -63,7 +63,7 @@ int main(int argc, char **argv) {
     cinnabar::TypeResolver resolver(ast);
     auto tast = resolver.resolve();
 
-    
+    tast.print_types();
     auto res = cinnabar::generate(tast, cinnabar::CodegenOutput::C);
     
     fmt::print("{}", res);

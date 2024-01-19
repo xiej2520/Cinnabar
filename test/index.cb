@@ -26,7 +26,7 @@ fun main() i32 {
   let d = arr4d[7]
   let e = arr4d
   
-  fun rec_set(arr4d VarRef[Array[Array[Array[Array[i32, 1], 2], 4], 8]], i i32, j i32, k i32, l i32) {
+  fun rec_set(arr4d Ref[Array[Array[Array[Array[i32, 1], 2], 4], 8]], i i32, j i32, k i32, l i32) {
     if i == 8 {
       return
     }

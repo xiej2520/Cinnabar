@@ -278,7 +278,10 @@ struct TExpr {
   T &as() { return std::get<T>(node); }
 
   template <typename T>
-  T *get_node_if() { return std::get_if<std::unique_ptr<T>>(&node)->get(); }
+  T *get_node_if() {
+    auto *ptr = std::get_if<std::unique_ptr<T>>(&node);
+    return ptr ? ptr->get() : nullptr;
+  }
 };
 
 struct TBinary {
@@ -417,6 +420,8 @@ struct TAST {
 
   std::unique_ptr<TNamespace> root_namesp;
   std::vector<TNamespace *> namespaces;
+  
+  void print_types() const;
 };
 
 } // namespace cinnabar

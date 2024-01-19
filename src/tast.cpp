@@ -233,4 +233,11 @@ bool TExpr::is_place_expr() const {
   // clang-format on
 }
 
+void TAST::print_types() const {
+  for (size_t i = 0; i < types.size(); i++) {
+    fmt::print("{}: {}; ", i, types[i].to_string(types));
+  }
+  fmt::println("");
+}
+
 } // namespace cinnabar

@@ -153,7 +153,10 @@ struct Expr {
   template <typename T>
   T &as() { return std::get<T>(node); }
   template <typename T>
-  T *get_node_if() { return std::get_if<std::unique_ptr<T>>(&node)->get(); }
+  T *get_node_if() {
+    auto *ptr = std::get_if<std::unique_ptr<T>>(&node);
+    return ptr ? ptr->get() : nullptr;
+  }
   // clang-format on
   std::string s_expr(int cur, int ind); // current indent, indent
 };

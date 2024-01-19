@@ -3,14 +3,18 @@ fun main() {
     a i32
   }
   let a1 Array[S, 4]
+  let s1 S
   {
     struct S {
       b f64
     }
     let a2 Array[S, 4]
+    let s2 S
     
-    a1[0] = 1
-    a2[0] = 1.0
+    a1[0].a = 1
+    s1.a = 2
+    a2[0].b = 1.0
+    s2.b = 2.0
   }
 }
 

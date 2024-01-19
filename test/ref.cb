@@ -6,10 +6,10 @@ fun main() i32 {
   let drx = __deref(rx)
 
   
-  let vr VarRef[isize]
+  let vr Ref[isize]
   
   let str Span[char]
-  let vstr VarSpan[char]
+  let vstr Span[char]
   
   let a Array[i32, 8]
   

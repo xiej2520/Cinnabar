@@ -1,4 +1,5 @@
 #include "type_resolver.hpp"
+#include "ast.hpp"
 #include "lexer.hpp"
 #include "tast.hpp"
 
@@ -183,13 +184,13 @@ TVarInst *TypeResolver::get_var_local_global(std::string_view name) {
   error(fmt::format("Variable {} not found.", name));
 }
 
-ItemRef TypeResolver::get_item_ref(const std::string &name) {
+DeclPtr TypeResolver::get_decl(const std::string &name) {
+  auto namesp = cur_ast_namesp;
+  auto tnamesp = cur_tnamesp;
   bool past_function_namespace = false;
-  for (auto tnamesp = cur_tnamesp; tnamesp != nullptr;
-       tnamesp = tnamesp->parent) {
-    if (auto it = tnamesp->items.find(name); it != tnamesp->items.end()) {
-      if (past_function_namespaceT arInst&&
-          std::holds_alternative<V *>(it->second)) {
+  for (; namesp != nullptr; namesp = namesp->parent, tnamesp = tnamesp->parent) {
+    if (auto it = namesp->names.find(name); it != namesp->names.end()) {
+      if (past_function_namespace && std::holds_alternative<VarDecl *>(it->second)) {
         error(fmt::format("Name {} refers to a nonlocal variable.", name));
       }
       return it->second;
@@ -224,6 +225,7 @@ TypeId TypeResolver::create_struct_type(
   
   TypeId struct_type_index = types.size();
   types.push_back(TypeRep{Path{struct_inst, parent_tnamesp->id, struct_item_index}});
+  struct_inst->base_name = decl->name_params.base_name;
   struct_inst->generic_args = std::move(args);
   struct_inst->namesp = make_tnamespace(parent_tnamesp);
 
@@ -281,6 +283,7 @@ TypeId TypeResolver::create_enum_type(
 
   TypeId enum_type_index = types.size();
   types.push_back(TypeRep{Path{enum_inst, parent_tnamesp->id, enum_item_index}});
+  enum_inst->base_name = decl->name_params.base_name;
   enum_inst->generic_args = std::move(args);
   enum_inst->namesp = make_tnamespace(parent_tnamesp);
 
@@ -381,6 +384,7 @@ FunctionInst *TypeResolver::create_function(
 
   items.push_back(Item{std::make_unique<FunctionInst>()});
   auto fun_inst = std::get<std::unique_ptr<FunctionInst>>(items.back()).get();
+  fun_inst->base_name = decl->name_params.base_name;
 
   auto concrete_full_name =
       cinnabar::to_string(decl->name_params.base_name, args, types);
@@ -494,7 +498,7 @@ TypeId TypeResolver::find_unary_op(UnaryOp op, const TExpr &operand) {
     std::vector<TGenericArg> arg;
     arg.push_back(TGenericArg{operand.type()});
     return get_type(TGenericInst{
-        Token::make_builtin("VarRef", Lexeme::IDENTIFIER), std::move(arg)
+        Token::make_builtin("Ref", Lexeme::IDENTIFIER), std::move(arg)
     });
   }
   case UnaryOp::DEREF: {
@@ -640,11 +644,7 @@ std::optional<TStmt> TypeResolver::resolve(Stmt &stmt) {
     [&](std::unique_ptr<Print> &stmt) -> std::optional<TStmt> {
       auto res = std::make_unique<TPrint>();
       res->newline = stmt->newline;
-      std::vector<TGenericArg> args;
-      args.push_back(TGenericArg{builtin_types["u8"]});
-      auto str_span_type = get_type(TGenericInst{
-          Token::make_builtin("Span", Lexeme::IDENTIFIER), std::move(args)
-      });
+      TypeId str_span_type = builtin_types["Span[u8]"];
 
       for (auto &expr : stmt->args) {
         res->args.push_back(resolve(expr));
@@ -695,6 +695,7 @@ std::optional<TStmt> TypeResolver::resolve(Stmt &stmt) {
         }
         else {
           // more than 1 arg, first arg isn't Span[u8]
+          fmt::println("{} {}", res->args.front().type(), str_span_type);
           error(fmt::format(
             "__print with more than 1 argument must have Span[u8] as first argument, found {}",
             to_string(res->args.front().type())));
@@ -884,19 +885,21 @@ TExpr TypeResolver::resolve(Expr &expr) {
     },
     [&](std::unique_ptr<Index> &expr) {
       if (NamedValue *named_val = expr->callee.get_node_if<NamedValue>()) {
-        auto item = get_item_ref(std::string{named_val->name.str});
+        auto decl = get_decl(std::string{named_val->name.str});
 
-        if (TypeId *t = std::get_if<TypeId>(&item)) {
+        if (StructDecl **_decl = std::get_if<StructDecl *>(&decl)) {
           auto tgeneric_inst = index_to_tgeneric_inst(*expr);
-
           return TExpr{std::make_unique<TTypeName>(get_type(std::move(tgeneric_inst)))};
 
-        } else if (FunctionInst **fi = std::get_if<FunctionInst *>(&item)) {
+        } else if (EnumDecl **_decl = std::get_if<EnumDecl *>(&decl)) {
+          auto tgeneric_inst = index_to_tgeneric_inst(*expr);
+          return TExpr{std::make_unique<TTypeName>(get_type(std::move(tgeneric_inst)))};
+
+        } else if (FunDecl **_decl = std::get_if<FunDecl *>(&decl)) {
           auto tgeneric_inst = index_to_tgeneric_inst(*expr);
           auto fun_inst = get_function(std::move(tgeneric_inst));
 
           return TExpr{std::make_unique<TFunctionName>(fun_inst->type, fun_inst)};
-
         }
       }
 
@@ -938,28 +941,33 @@ TExpr TypeResolver::resolve(Expr &expr) {
       // the found variable is either local to the function, or a global. If not,
       // it is invalid code, throw error
 
-      auto item = get_item_ref(std::string{expr->name.str});
+      auto decl = get_decl(std::string{expr->name.str});
       return std::visit(overload {
-        [&](const TypeId &type) -> TExpr {
-          return TExpr{std::make_unique<TTypeName>(type)};
+        [&](const BuiltinType &) {
+          return TExpr{std::make_unique<TTypeName>(builtin_types[expr->name.str])};
         },
-        [&](FunctionInst *fun) -> TExpr {
+        [&](StructDecl *) {
+          return TExpr{std::make_unique<TTypeName>(get_type(TGenericInst{expr->name, {}}))};
+        },
+        [&](EnumDecl *) {
+          return TExpr{std::make_unique<TTypeName>(get_type(TGenericInst{expr->name, {}}))};
+        },
+        [&](VarDecl *) {
+          auto res = std::make_unique_for_overwrite<TVariable>();
+          TVarInst *correct_var = get_var_local_global(expr->name.str);
+
+          res->name = expr->name;
+          res->type = correct_var->type;
+          return TExpr{std::move(res)};
+        },
+        [&](FunDecl *) {
           auto res = std::make_unique_for_overwrite<TFunctionName>();
+          auto fun = get_function(TGenericInst{expr->name, {}});
           res->type = fun->type;
           res->fun = fun;
           return TExpr{std::move(res)};
         },
-        [&](TVarInst *var) -> TExpr {
-          auto res = std::make_unique_for_overwrite<TVariable>();
-          TVarInst *correct_var = get_var_local_global(expr->name.str);
-          if (var != correct_var) {
-            error(fmt::format("Function referred to nonlocal variable which was not a global."));
-          }
-          res->name = expr->name;
-          res->type = var->type;
-          return TExpr{std::move(res)};
-        },
-      }, item);
+      }, decl);
     },
   }, expr.node);
   // clang-format on

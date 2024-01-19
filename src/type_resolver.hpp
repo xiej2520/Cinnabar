@@ -86,7 +86,7 @@ struct TypeResolver {
   TypeId get_type(TGenericInst concrete);
   FunctionInst *get_function(TGenericInst concrete);
   TVarInst *get_var_local_global(std::string_view name);
-  ItemRef get_item_ref(const std::string &name);
+  DeclPtr get_decl(const std::string &name);
   TypeId get_function_typeid(const FunctionType &ft);
 
   // tnamesp is the TNamespace where the type will be declared
